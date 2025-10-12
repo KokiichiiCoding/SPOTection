@@ -1,2 +1,38 @@
-venv/
+# Python
 __pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+venv/
+env/
+ENV/
+*.egg-info/
+dist/
+build/
+
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Project specific
+output/
+logs/*.log
+*.pt
+*.pth
+cnrpark_data/
+data/images/*.jpg
+data/images/*.png
+!data/images/sample.jpg
+backup_before_cleanup/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp files
+*.tmp
+*.temp
