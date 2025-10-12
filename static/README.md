@@ -1,0 +1,3 @@
+# Static
+
+Static web files
