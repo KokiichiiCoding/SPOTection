@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Live Parking View - Parking Detection System</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .live-view-container {
+            position: relative;
+            display: inline-block;
+            width: 100%;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+        
+        #liveFeed {
+            display: block;
+            width: 100%;
+            height: auto;
+        }
+        
+        #detectionCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
+        
+        .detection-overlay {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            padding: 1rem;
+            border-radius: 8px;
+            color: white;
+            min-width: 200px;
+        }
+        
+        .detection-overlay h4 {
+            margin: 0 0 0.75rem 0;
+            font-size: 1rem;
+            color: #10b981;
+        }
+        
+        .detection-stat {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+        }
+        
+        .detection-stat span:first-child {
+            color: #94a3b8;
+        }
+        
+        .detection-stat span:last-child {
+            font-weight: 600;
+        }
+        
+        .legend {
+            display: flex;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+            padding: 1rem;
+            background: var(--background);
+            border-radius: 8px;
+            margin-top: 1rem;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .legend-box {
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            border: 2px solid;
+        }
+        
+        .legend-box.available {
+            background: rgba(16, 185, 129, 0.3);
+            border-color: #10b981;
+        }
+        
+        .legend-box.occupied {
+            background: rgba(239, 68, 68, 0.3);
+            border-color: #ef4444;
+        }
+        
+        .fullscreen-btn {
+            position: absolute;
+            bottom: 1rem;
+            right: 1rem;
+            padding: 0.5rem 1rem;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+        
+        .fullscreen-btn:hover {
+            background: rgba(0, 0, 0, 0.9);
+        }
+        
+        .space-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+            gap: 0.5rem;
+            padding: 1rem;
+            background: var(--background);
+            border-radius: 8px;
+        }
+        
+        .space-cell {
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 0.85rem;
+            border-radius: 6px;
+            transition: all 0.3s;
+            cursor: pointer;
+            border: 2px solid transparent;
+        }
+        
+        .space-cell.available {
+            background: #d1fae5;
+            color: #059669;
+        }
+        
+        .space-cell.occupied {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+        
+        .space-cell:hover {
+            transform: scale(1.05);
+            border-color: var(--primary-color);
+        }
+        
+        .status-banner {
+            padding: 0.75rem 1.5rem;
+            background: linear-gradient(135deg, var(--primary-color), #1d4ed8);
+            color: white;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        
+        .status-banner.alert {
+            background: linear-gradient(135deg, var(--danger-color), #dc2626);
+        }
+        
+        .status-banner.warning {
+            background: linear-gradient(135deg, var(--warning-color), #d97706);
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <h1>🚗 Parking Detection System</h1>
+            <div class="nav-links">
+                <a href="/">Dashboard</a>
+                <a href="/live" class="active">Live View</a>
+                <a href="/analytics">Analytics</a>
+                <a href="/admin">Admin</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="header">
+            <h2>Live Parking Detection</h2>
+            <p>Real-time camera feed with AI-powered parking space detection</p>
+        </div>
+
+        <!-- Status Banner -->
+        <div class="status-banner" id="statusBanner">
+            <div>
+                <strong id="bannerTitle">Parking Available</strong>
+                <span id="bannerMessage" style="margin-left: 1rem; opacity: 0.9;">Plenty of spaces remaining</span>
+            </div>
+            <div style="font-size: 1.5rem; font-weight: 700;" id="bannerCount">23 / 50</div>
+        </div>
+
+        <!-- Quick Stats -->
+        <div class="stats-grid" style="margin-bottom: 2rem;">
+            <div class="stat-card available">
+                <div class="stat-icon">✓</div>
+                <div class="stat-content">
+                    <h3>Available Now</h3>
+                    <p class="stat-number" id="availableSpaces">--</p>
+                </div>
+            </div>
+
+            <div class="stat-card occupied">
+                <div class="stat-icon">🚗</div>
+                <div class="stat-content">
+                    <h3>Currently Occupied</h3>
+                    <p class="stat-number" id="occupiedSpaces">--</p>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon">⏱️</div>
+                <div class="stat-content">
+                    <h3>Last Updated</h3>
+                    <p class="stat-number" style="font-size: 1rem;" id="lastUpdated">--</p>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-icon">📊</div>
+                <div class="stat-content">
+                    <h3>Detection Status</h3>
+                    <p class="stat-number" style="font-size: 1rem;">
+                        <span class="indicator-dot green"></span> Active
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Live Feed with Detection Overlay -->
+        <div class="content-section">
+            <h3>Live Camera Feed with Detection</h3>
+            
+            <div class="live-view-container" id="liveViewContainer">
+                <img id="liveFeed" src="" alt="Loading live feed...">
+                <canvas id="detectionCanvas"></canvas>
+                
+                <!-- Real-time Stats Overlay -->
+                <div class="detection-overlay">
+                    <h4>🎯 Detection Info</h4>
+                    <div class="detection-stat">
+                        <span>Confidence:</span>
+                        <span id="confidence">95%</span>
+                    </div>
+                    <div class="detection-stat">
+                        <span>FPS:</span>
+                        <span id="fps">--</span>
+                    </div>
+                    <div class="detection-stat">
+                        <span>Detected:</span>
+                        <span id="detectedCount">--</span>
+                    </div>
+                    <div class="detection-stat">
+                        <span>Processing:</span>
+                        <span id="processingTime">--ms</span>
+                    </div>
+                </div>
+
+                <button class="fullscreen-btn" onclick="toggleFullscreen()">
+                    🖵 Fullscreen
+                </button>
+            </div>
+
+            <!-- Legend -->
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-box available"></div>
+                    <span>Available Space</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-box occupied"></div>
+                    <span>Occupied Space</span>
+                </div>
+                <div class="legend-item">
+                    <span style="color: var(--text-secondary);">
+                        📍 Spaces are highlighted in real-time as vehicles enter/exit
+                    </span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Space Grid View -->
+        <div class="content-section" style="margin-top: 2rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h3>All Parking Spaces</h3>
+                <div>
+                    <button onclick="filterSpaces('all')" class="btn btn-secondary" id="filterAll">All</button>
+                    <button onclick="filterSpaces('available')" class="btn btn-secondary" id="filterAvailable">Available</button>
+                    <button onclick="filterSpaces('occupied')" class="btn btn-secondary" id="filterOccupied">Occupied</button>
+                </div>
+            </div>
+            
+            <div class="space-grid" id="spaceGrid">
+                <!-- Spaces will be populated here -->
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="content-section" style="margin-top: 2rem;">
+            <h3>View Controls</h3>
+            <div class="button-group">
+                <button onclick="toggleDetectionOverlay()" class="btn btn-primary" id="toggleOverlayBtn">
+                    👁️ Hide Detection Boxes
+                </button>
+                <button onclick="refreshFeed()" class="btn btn-secondary">
+                    🔄 Refresh Feed
+                </button>
+                <button onclick="captureSnapshot()" class="btn btn-secondary">
+                    📸 Capture Snapshot
+                </button>
+                <button onclick="window.location.href='/analytics'" class="btn btn-secondary">
+                    📊 View Analytics
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let canvas, ctx, liveFeed;
+        let showOverlay = true;
+        let currentFilter = 'all';
+        let detectionData = {
+            spaces: [],
+            available: 0,
+            occupied: 0
+        };
+        let updateInterval;
+
+        // Initialize
+        window.onload = function() {
+            liveFeed = document.getElementById('liveFeed');
+            canvas = document.getElementById('detectionCanvas');
+            ctx = canvas.getContext('2d');
+            
+            // Load initial data
+            loadLiveFeed();
+            fetchParkingData();
+            
+            // Setup resize handler
+            liveFeed.onload = function() {
+                resizeCanvas();
+                drawDetectionOverlay();
+            };
+            
+            window.addEventListener('resize', resizeCanvas);
+            
+            // Auto-update every 2 seconds for real-time feel
+            updateInterval = setInterval(() => {
+                loadLiveFeed();
+                fetchParkingData();
+            }, 2000);
+        };
+
+        function resizeCanvas() {
+            canvas.width = liveFeed.clientWidth;
+            canvas.height = liveFeed.clientHeight;
+            drawDetectionOverlay();
+        }
+
+        async function loadLiveFeed() {
+            try {
+                const response = await fetch('/api/camera/feed');
+                const data = await response.json();
+                
+                if (data.image_url) {
+                    liveFeed.src = data.image_url + '?t=' + Date.now();
+                }
+                
+                // Update FPS
+                const fps = Math.floor(Math.random() * 3) + 28; // Simulate 28-30 FPS
+                document.getElementById('fps').textContent = fps;
+                
+                // Update processing time
+                const processingTime = Math.floor(Math.random() * 20) + 30; // 30-50ms
+                document.getElementById('processingTime').textContent = processingTime + 'ms';
+            } catch (error) {
+                console.error('Error loading feed:', error);
+            }
+        }
+
+        async function fetchParkingData() {
+            try {
+                const response = await fetch('/api/parking/status');
+                const data = await response.json();
+                
+                detectionData.available = data.available_spaces;
+                detectionData.occupied = data.occupied_spaces;
+                detectionData.spaces = data.spaces || [];
+                
+                updateUI(data);
+                drawDetectionOverlay();
+                updateSpaceGrid();
+            } catch (error) {
+                console.error('Error fetching parking data:', error);
+            }
+        }
+
+        function updateUI(data) {
+            // Update stats
+            document.getElementById('availableSpaces').textContent = data.available_spaces;
+            document.getElementById('occupiedSpaces').textContent = data.occupied_spaces;
+            document.getElementById('detectedCount').textContent = data.total_spaces;
+            
+            // Update last updated
+            const lastUpdated = new Date(data.last_updated);
+            document.getElementById('lastUpdated').textContent = lastUpdated.toLocaleTimeString();
+            
+            // Update banner
+            const banner = document.getElementById('statusBanner');
+            const bannerTitle = document.getElementById('bannerTitle');
+            const bannerMessage = document.getElementById('bannerMessage');
+            const bannerCount = document.getElementById('bannerCount');
+            
+            bannerCount.textContent = `${data.available_spaces} / ${data.total_spaces}`;
+            
+            if (data.available_spaces === 0) {
+                banner.className = 'status-banner alert';
+                bannerTitle.textContent = 'Lot Full';
+                bannerMessage.textContent = 'No spaces currently available';
+            } else if (data.available_spaces <= 5) {
+                banner.className = 'status-banner warning';
+                bannerTitle.textContent = 'Limited Availability';
+                bannerMessage.textContent = 'Only a few spaces left';
+            } else {
+                banner.className = 'status-banner';
+                bannerTitle.textContent = 'Parking Available';
+                bannerMessage.textContent = 'Plenty of spaces remaining';
+            }
+        }
+
+        function drawDetectionOverlay() {
+            if (!showOverlay) {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                return;
+            }
+            
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // TODO: Replace with actual detection data from your ML model
+            // For now, simulate parking space polygons
+            const scaleX = canvas.width / 1280;
+            const scaleY = canvas.height / 720;
+            
+            detectionData.spaces.forEach((space, index) => {
+                // Simulate polygon positions (replace with actual calibration data)
+                const row = Math.floor(index / 10);
+                const col = index % 10;
+                const x = 50 + col * 120;
+                const y = 50 + row * 140;
+                
+                const polygon = [
+                    {x: x * scaleX, y: y * scaleY},
+                    {x: (x + 100) * scaleX, y: y * scaleY},
+                    {x: (x + 100) * scaleX, y: (y + 120) * scaleY},
+                    {x: x * scaleX, y: (y + 120) * scaleY}
+                ];
+                
+                // Draw based on status
+                const isAvailable = space.status === 'available';
+                const color = isAvailable ? '#10b981' : '#ef4444';
+                const fillColor = isAvailable ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)';
+                
+                // Fill
+                ctx.fillStyle = fillColor;
+                ctx.beginPath();
+                ctx.moveTo(polygon[0].x, polygon[0].y);
+                for (let i = 1; i < polygon.length; i++) {
+                    ctx.lineTo(polygon[i].x, polygon[i].y);
+                }
+                ctx.closePath();
+                ctx.fill();
+                
+                // Border
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 2;
+                ctx.stroke();
+                
+                // Label
+                const centerX = polygon.reduce((sum, p) => sum + p.x, 0) / polygon.length;
+                const centerY = polygon.reduce((sum, p) => sum + p.y, 0) / polygon.length;
+                
+                ctx.fillStyle = color;
+                ctx.font = 'bold 14px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(space.id.split('-')[1], centerX, centerY);
+            });
+        }
+
+        function updateSpaceGrid() {
+            const grid = document.getElementById('spaceGrid');
+            
+            let filteredSpaces = detectionData.spaces;
+            if (currentFilter === 'available') {
+                filteredSpaces = detectionData.spaces.filter(s => s.status === 'available');
+            } else if (currentFilter === 'occupied') {
+                filteredSpaces = detectionData.spaces.filter(s => s.status === 'occupied');
+            }
+            
+            grid.innerHTML = filteredSpaces.map(space => `
+                <div class="space-cell ${space.status}" title="${space.id} - ${space.status}">
+                    ${space.id.split('-')[1]}
+                </div>
+            `).join('');
+        }
+
+        function toggleDetectionOverlay() {
+            showOverlay = !showOverlay;
+            const btn = document.getElementById('toggleOverlayBtn');
+            btn.textContent = showOverlay ? '👁️ Hide Detection Boxes' : '👁️ Show Detection Boxes';
+            drawDetectionOverlay();
+        }
+
+        function refreshFeed() {
+            loadLiveFeed();
+            fetchParkingData();
+        }
+
+        function captureSnapshot() {
+            // Create a temporary canvas with both feed and overlay
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = liveFeed.naturalWidth;
+            tempCanvas.height = liveFeed.naturalHeight;
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            // Draw image
+            tempCtx.drawImage(liveFeed, 0, 0);
+            
+            // Draw overlay if visible
+            if (showOverlay) {
+                tempCtx.drawImage(canvas, 0, 0, tempCanvas.width, tempCanvas.height);
+            }
+            
+            // Download
+            tempCanvas.toBlob(blob => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `parking_snapshot_${new Date().toISOString().split('T')[0]}_${Date.now()}.jpg`;
+                a.click();
+                URL.revokeObjectURL(url);
+            }, 'image/jpeg');
+            
+            alert('📸 Snapshot captured!');
+        }
+
+        function filterSpaces(filter) {
+            currentFilter = filter;
+            
+            // Update button states
+            document.getElementById('filterAll').className = filter === 'all' ? 'btn btn-primary' : 'btn btn-secondary';
+            document.getElementById('filterAvailable').className = filter === 'available' ? 'btn btn-primary' : 'btn btn-secondary';
+            document.getElementById('filterOccupied').className = filter === 'occupied' ? 'btn btn-primary' : 'btn btn-secondary';
+            
+            updateSpaceGrid();
+        }
+
+        function toggleFullscreen() {
+            const container = document.getElementById('liveViewContainer');
+            
+            if (!document.fullscreenElement) {
+                container.requestFullscreen().catch(err => {
+                    alert('Error attempting to enable fullscreen: ' + err.message);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        // Cleanup
+        window.addEventListener('beforeunload', () => {
+            clearInterval(updateInterval);
+        });
+    </script>
+</body>
+</html>
