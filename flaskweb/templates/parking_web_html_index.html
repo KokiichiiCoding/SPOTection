@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Parking Availability Dashboard</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <h1>🚗 Parking Detection System</h1>
+            <div class="nav-links">
+                <a href="/" class="active">Dashboard</a>
+                <a href="/live">Live View</a>
+                <a href="/monitor">Monitor</a>
+                <a href="/analytics">Analytics</a>
+                <a href="/admin">Admin</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="header">
+            <h2>Real-Time Parking Availability</h2>
+            <p class="last-updated">Last updated: <span id="lastUpdated">--</span></p>
+        </div>
+
+        <div class="stats-grid">
+            <div class="stat-card available">
+                <div class="stat-icon">✓</div>
+                <div class="stat-content">
+                    <h3>Available</h3>
+                    <p class="stat-number" id="availableSpaces">--</p>
+                </div>
+            </div>
+
+            <div class="stat-card occupied">
+                <div class="stat-icon">✗</div>
+                <div class="stat-content">
+                    <h3>Occupied</h3>
+                    <p class="stat-number" id="occupiedSpaces">--</p>
+                </div>
+            </div>
+
+            <div class="stat-card total">
+                <div class="stat-icon">📊</div>
+                <div class="stat-content">
+                    <h3>Total Spaces</h3>
+                    <p class="stat-number" id="totalSpaces">--</p>
+                </div>
+            </div>
+
+            <div class="stat-card occupancy">
+                <div class="stat-icon">📈</div>
+                <div class="stat-content">
+                    <h3>Occupancy Rate</h3>
+                    <p class="stat-number" id="occupancyRate">--%</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="content-section">
+            <h3>Parking Lot Status</h3>
+            <div class="status-indicator">
+                <span class="indicator-dot" id="statusIndicator"></span>
+                <span id="statusText">Checking status...</span>
+            </div>
+        </div>
+
+        <div class="content-section">
+            <h3>Quick Actions</h3>
+            <div class="button-group">
+                <button onclick="refreshData()" class="btn btn-primary">Refresh Data</button>
+                <button onclick="window.location.href='/monitor'" class="btn btn-secondary">View Live Feed</button>
+                <button onclick="window.location.href='/analytics'" class="btn btn-secondary">View Analytics</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let updateInterval;
+
+        async function fetchParkingStatus() {
+            try {
+                const response = await fetch('/api/parking/status');
+                const data = await response.json();
+                
+                // Update stats
+                document.getElementById('availableSpaces').textContent = data.available_spaces;
+                document.getElementById('occupiedSpaces').textContent = data.occupied_spaces;
+                document.getElementById('totalSpaces').textContent = data.total_spaces;
+                
+                // Calculate occupancy rate
+                const occupancyRate = ((data.occupied_spaces / data.total_spaces) * 100).toFixed(1);
+                document.getElementById('occupancyRate').textContent = occupancyRate + '%';
+                
+                // Update last updated time
+                const lastUpdated = new Date(data.last_updated);
+                document.getElementById('lastUpdated').textContent = lastUpdated.toLocaleTimeString();
+                
+                // Update status indicator
+                const indicator = document.getElementById('statusIndicator');
+                const statusText = document.getElementById('statusText');
+                
+                if (data.available_spaces > 10) {
+                    indicator.className = 'indicator-dot green';
+                    statusText.textContent = 'Parking Available';
+                } else if (data.available_spaces > 5) {
+                    indicator.className = 'indicator-dot yellow';
+                    statusText.textContent = 'Limited Availability';
+                } else {
+                    indicator.className = 'indicator-dot red';
+                    statusText.textContent = 'Almost Full';
+                }
+                
+            } catch (error) {
+                console.error('Error fetching parking status:', error);
+                document.getElementById('statusText').textContent = 'Connection Error';
+            }
+        }
+
+        function refreshData() {
+            fetchParkingStatus();
+        }
+
+        // Initial load
+        fetchParkingStatus();
+
+        // Auto-refresh every 5 seconds
+        updateInterval = setInterval(fetchParkingStatus, 5000);
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            clearInterval(updateInterval);
+        });
+    </script>
+</body>
+</html>
