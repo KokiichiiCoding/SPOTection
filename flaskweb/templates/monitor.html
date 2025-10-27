@@ -12,6 +12,7 @@
             <h1>🚗 Parking Detection System</h1>
             <div class="nav-links">
                 <a href="/">Dashboard</a>
+                <a href="/live">Live View</a>
                 <a href="/monitor" class="active">Monitor</a>
                 <a href="/analytics">Analytics</a>
                 <a href="/admin">Admin</a>
@@ -67,14 +68,8 @@
                 </div>
             </div>
 
-            <div style="position: relative; display: inline-block; width: 100%;">
-                <div id="cameraFeed" style="width: 100%; min-height: 500px; background: #e2e8f0; border-radius: 12px; display: flex; align-items: center; justify-content: center;">
-                    <div style="text-align: center; color: var(--text-secondary);">
-                        <div style="font-size: 48px; margin-bottom: 1rem;">📹</div>
-                        <p style="font-size: 1.2rem;">Camera Feed</p>
-                        <p style="font-size: 0.9rem;">Live feed will appear here</p>
-                    </div>
-                </div>
+                            <div style="position: relative; display: inline-block; width: 100%;">
+                <img id="cameraFeed" src="" alt="Loading camera feed..." style="width: 100%; min-height: 500px; background: #e2e8f0; border-radius: 12px; display: block;">
                 
                 <!-- Overlay for detection boxes (will be drawn by ML model) -->
                 <canvas id="detectionOverlay" style="position: absolute; top: 0; left: 0; pointer-events: none;"></canvas>
@@ -131,6 +126,44 @@
     <script>
         let detectionActive = true;
         let logEntries = [];
+        let cameraFeed;
+
+        // Initialize
+        window.onload = function() {
+            cameraFeed = document.getElementById('cameraFeed');
+            loadCameraFeed();
+            
+            // Auto-refresh feed every 5 seconds
+            setInterval(loadCameraFeed, 5000);
+        };
+
+        async function loadCameraFeed() {
+            try {
+                const response = await fetch('/api/camera/feed');
+                const data = await response.json();
+                
+                console.log('Monitor camera feed:', data); // Debug log
+                
+                if (data.image_url) {
+                    cameraFeed.onload = function() {
+                        // Feed loaded successfully
+                        console.log('Camera feed image loaded');
+                    };
+                    
+                    cameraFeed.onerror = function() {
+                        console.error('Failed to load camera feed image');
+                    };
+                    
+                    // Set the image source
+                    cameraFeed.src = data.image_url;
+                } else {
+                    console.error('No image_url in API response');
+                }
+            } catch (error) {
+                console.error('Error loading camera feed:', error);
+                cameraFeed.alt = 'Error loading feed: ' + error.message;
+            }
+        }
 
         // Simulate FPS counter
         function updateFPS() {
