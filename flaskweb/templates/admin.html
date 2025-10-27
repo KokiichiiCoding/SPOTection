@@ -1,0 +1,791 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Calibration Tool - Parking Detection System</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .calibration-workspace {
+            position: relative;
+            display: inline-block;
+            background: #1e293b;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.3);
+        }
+        
+        #videoFeed {
+            display: block;
+            max-width: 100%;
+            height: auto;
+        }
+        
+        #calibrationCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            cursor: crosshair;
+        }
+        
+        .space-list {
+            max-height: 400px;
+            overflow-y: auto;
+            background: var(--background);
+            border-radius: 8px;
+            padding: 1rem;
+        }
+        
+        .space-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.75rem;
+            background: white;
+            border-radius: 6px;
+            margin-bottom: 0.5rem;
+            border: 2px solid transparent;
+            transition: all 0.2s;
+        }
+        
+        .space-item:hover {
+            border-color: var(--primary-color);
+            transform: translateX(4px);
+        }
+        
+        .space-item.active {
+            border-color: var(--success-color);
+            background: #d1fae5;
+        }
+        
+        .space-item.editing {
+            border-color: var(--warning-color);
+            background: #fef3c7;
+        }
+        
+        .toolbar {
+            display: flex;
+            gap: 1rem;
+            flex-wrap: wrap;
+            margin-bottom: 1rem;
+            padding: 1rem;
+            background: var(--background);
+            border-radius: 8px;
+        }
+        
+        .color-picker {
+            display: flex;
+            gap: 0.5rem;
+            align-items: center;
+        }
+        
+        .color-option {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            border: 2px solid transparent;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        
+        .color-option:hover {
+            transform: scale(1.2);
+        }
+        
+        .color-option.active {
+            border-color: var(--text-primary);
+            box-shadow: 0 0 0 2px white, 0 0 0 4px var(--text-primary);
+        }
+        
+        .instructions {
+            background: #dbeafe;
+            border-left: 4px solid var(--primary-color);
+            padding: 1rem;
+            border-radius: 4px;
+            margin-bottom: 1rem;
+        }
+        
+        .instructions h4 {
+            margin-bottom: 0.5rem;
+            color: var(--primary-color);
+        }
+        
+        .instructions ul {
+            margin-left: 1.5rem;
+            color: var(--text-secondary);
+        }
+        
+        .instructions li {
+            margin-bottom: 0.25rem;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <h1>🚗 Parking Detection System</h1>
+            <div class="nav-links">
+                <a href="/">Dashboard</a>
+                <a href="/live">Live View</a>
+                <a href="/monitor">Monitor</a>
+                <a href="/analytics">Analytics</a>
+                <a href="/admin" class="active">Admin</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="header">
+            <h2>Parking Space Calibration Tool</h2>
+            <p>Draw polygons directly on the live camera feed to define parking spaces</p>
+        </div>
+
+        <div class="instructions">
+            <h4>📋 How to Calibrate:</h4>
+            <ul>
+                <li><strong>Click on the video feed</strong> to mark the corners of a parking space (4 clicks to complete)</li>
+                <li>The polygon will automatically close after the 4th point</li>
+                <li>Each completed space is saved to the list on the right</li>
+                <li>Click on a saved space to edit or delete it</li>
+                <li>Use different colors to organize spaces by zones or types</li>
+                <li>Press "Save All" when finished to apply calibration to the system</li>
+            </ul>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 350px; gap: 2rem;">
+            <!-- Left Column: Live Feed + Canvas -->
+            <div>
+                <div class="content-section">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <h3>Live Camera Feed</h3>
+                        <div class="status-indicator">
+                            <span class="indicator-dot green"></span>
+                            <span>Camera Active</span>
+                        </div>
+                    </div>
+
+                    <div class="toolbar">
+                        <button onclick="startNewSpace()" class="btn btn-primary" id="newSpaceBtn">
+                            ➕ New Parking Space
+                        </button>
+                        <button onclick="undoLastPoint()" class="btn btn-secondary" id="undoBtn" disabled>
+                            ↶ Undo Point
+                        </button>
+                        <button onclick="clearCurrent()" class="btn btn-secondary" id="clearBtn" disabled>
+                            🗑️ Clear Current
+                        </button>
+                        <button onclick="toggleGrid()" class="btn btn-secondary">
+                            📐 Toggle Grid
+                        </button>
+                        
+                        <div class="color-picker">
+                            <span style="font-weight: 500; margin-right: 0.5rem;">Color:</span>
+                            <div class="color-option active" style="background: #10b981;" onclick="selectColor('#10b981')" data-color="#10b981"></div>
+                            <div class="color-option" style="background: #3b82f6;" onclick="selectColor('#3b82f6')" data-color="#3b82f6"></div>
+                            <div class="color-option" style="background: #f59e0b;" onclick="selectColor('#f59e0b')" data-color="#f59e0b"></div>
+                            <div class="color-option" style="background: #ef4444;" onclick="selectColor('#ef4444')" data-color="#ef4444"></div>
+                            <div class="color-option" style="background: #8b5cf6;" onclick="selectColor('#8b5cf6')" data-color="#8b5cf6"></div>
+                        </div>
+                    </div>
+
+                    <div class="calibration-workspace" id="workspace">
+                        <img id="videoFeed" src="" alt="Loading camera feed...">
+                        <canvas id="calibrationCanvas"></canvas>
+                    </div>
+
+                    <div style="margin-top: 1rem; display: flex; justify-content: space-between; align-items: center;">
+                        <div>
+                            <p style="color: var(--text-secondary); font-size: 0.9rem;">
+                                Points: <strong id="pointCount">0/4</strong> | 
+                                Current Space: <strong id="currentSpaceNum">--</strong>
+                            </p>
+                        </div>
+                        <div>
+                            <button onclick="refreshFeed()" class="btn btn-secondary">🔄 Refresh Feed</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Configuration Section -->
+                <div class="content-section" style="margin-top: 2rem;">
+                    <h3>System Configuration</h3>
+                    <form id="configForm">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                            <div class="form-group">
+                                <label for="detectionThreshold">Detection Threshold</label>
+                                <input type="number" id="detectionThreshold" name="detectionThreshold" 
+                                       min="0" max="1" step="0.05" value="0.5" required>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="updateInterval">Update Interval (sec)</label>
+                                <input type="number" id="updateInterval" name="updateInterval" 
+                                       min="1" max="60" value="5" required>
+                            </div>
+                        </div>
+
+                        <div class="button-group">
+                            <button type="submit" class="btn btn-primary">Save Configuration</button>
+                            <button type="button" onclick="loadConfig()" class="btn btn-secondary">Reset</button>
+                        </div>
+                    </form>
+                    <div id="configMessage" style="margin-top: 1rem;"></div>
+                </div>
+            </div>
+
+            <!-- Right Column: Space List -->
+            <div>
+                <div class="content-section">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <h3>Defined Spaces (<span id="spaceCount">0</span>)</h3>
+                        <button onclick="saveAllSpaces()" class="btn btn-primary">💾 Save All</button>
+                    </div>
+
+                    <div class="space-list" id="spaceList">
+                        <p style="text-align: center; color: var(--text-secondary); padding: 2rem;">
+                            No spaces defined yet.<br>
+                            Click "New Parking Space" to start.
+                        </p>
+                    </div>
+
+                    <div style="margin-top: 1rem;">
+                        <button onclick="clearAllSpaces()" class="btn btn-secondary" style="width: 100%;">
+                            🗑️ Clear All Spaces
+                        </button>
+                        <button onclick="exportCalibration()" class="btn btn-secondary" style="width: 100%; margin-top: 0.5rem;">
+                            📤 Export Calibration
+                        </button>
+                        <button onclick="importCalibration()" class="btn btn-secondary" style="width: 100%; margin-top: 0.5rem;">
+                            📥 Import Calibration
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let canvas, ctx, videoFeed;
+        let currentPolygon = [];
+        let savedSpaces = [];
+        let isDrawing = false;
+        let currentColor = '#10b981';
+        let showGrid = false;
+        let editingSpaceId = null;
+        let feedUpdateInterval;
+
+        // Initialize
+        window.onload = function() {
+            videoFeed = document.getElementById('videoFeed');
+            canvas = document.getElementById('calibrationCanvas');
+            ctx = canvas.getContext('2d');
+            
+            // Load camera feed first
+            loadCameraFeed();
+            
+            // Auto-refresh feed every 5 seconds
+            feedUpdateInterval = setInterval(refreshFeed, 5000);
+            
+            // Load config
+            loadConfig();
+        };
+
+        async function loadCameraFeed() {
+            try {
+                const response = await fetch('/api/camera/feed');
+                const data = await response.json();
+                
+                console.log('Admin camera feed loaded:', data); // Debug log
+                
+                if (data.image_url) {
+                    videoFeed.onload = function() {
+                        // Resize canvas to match loaded image
+                        canvas.width = videoFeed.naturalWidth || videoFeed.width;
+                        canvas.height = videoFeed.naturalHeight || videoFeed.height;
+                        drawAll();
+                    };
+                    
+                    // Handle both base64 and regular URLs
+                    videoFeed.src = data.image_url;
+                } else {
+                    console.error('No image_url in response');
+                    createPlaceholder();
+                }
+            } catch (error) {
+                console.error('Error loading camera feed:', error);
+                createPlaceholder();
+            }
+        }
+
+        function createPlaceholder() {
+            // Create a placeholder canvas
+            const placeholderCanvas = document.createElement('canvas');
+            placeholderCanvas.width = 1280;
+            placeholderCanvas.height = 720;
+            const placeholderCtx = placeholderCanvas.getContext('2d');
+            
+            // Draw placeholder
+            placeholderCtx.fillStyle = '#1e293b';
+            placeholderCtx.fillRect(0, 0, 1280, 720);
+            placeholderCtx.fillStyle = '#64748b';
+            placeholderCtx.font = '32px Arial';
+            placeholderCtx.textAlign = 'center';
+            placeholderCtx.fillText('Camera Feed Placeholder', 640, 340);
+            placeholderCtx.font = '18px Arial';
+            placeholderCtx.fillText('Click to start calibrating parking spaces', 640, 380);
+            
+            videoFeed.src = placeholderCanvas.toDataURL();
+        }
+
+        function refreshFeed() {
+            loadCameraFeed();
+        }
+
+        function startNewSpace() {
+            if (currentPolygon.length > 0 && currentPolygon.length < 4) {
+                if (!confirm('Current space is incomplete. Start a new one anyway?')) {
+                    return;
+                }
+            }
+            
+            currentPolygon = [];
+            isDrawing = true;
+            editingSpaceId = null;
+            
+            // Setup canvas click handler if not already set
+            if (!canvas.onclick) {
+                canvas.addEventListener('click', handleCanvasClick);
+            }
+            
+            updateUI();
+            drawAll();
+        }
+
+        function handleCanvasClick(event) {
+            if (!isDrawing && savedSpaces.length === 0) {
+                // Auto-start if no spaces exist
+                startNewSpace();
+            }
+            
+            if (!isDrawing) return;
+
+            const rect = canvas.getBoundingClientRect();
+            const scaleX = canvas.width / rect.width;
+            const scaleY = canvas.height / rect.height;
+            const x = (event.clientX - rect.left) * scaleX;
+            const y = (event.clientY - rect.top) * scaleY;
+
+            currentPolygon.push({x, y});
+            
+            updateUI();
+            drawAll();
+
+            // Complete polygon with 4 points
+            if (currentPolygon.length === 4) {
+                completeSpace();
+            }
+        }
+
+        function completeSpace() {
+            const spaceId = 'SPACE-' + String(savedSpaces.length + 1).padStart(3, '0');
+            
+            // Normalize coordinates to 0-1 range (percentage of image size)
+            const normalizedPolygon = currentPolygon.map(point => ({
+                x: point.x / canvas.width,  // Convert to percentage
+                y: point.y / canvas.height
+            }));
+            
+            const newSpace = {
+                id: spaceId,
+                polygon: normalizedPolygon,  // Save normalized coordinates
+                color: currentColor,
+                timestamp: new Date().toISOString()
+            };
+            
+            savedSpaces.push(newSpace);
+            currentPolygon = [];
+            isDrawing = false;
+            
+            console.log('Space saved with normalized coordinates:', newSpace);
+            
+            updateSpaceList();
+            updateUI();
+            drawAll();
+        }
+
+        function undoLastPoint() {
+            if (currentPolygon.length > 0) {
+                currentPolygon.pop();
+                updateUI();
+                drawAll();
+            }
+        }
+
+        function clearCurrent() {
+            if (confirm('Clear current polygon?')) {
+                currentPolygon = [];
+                isDrawing = false;
+                updateUI();
+                drawAll();
+            }
+        }
+
+        function drawAll() {
+            // Clear canvas
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw grid if enabled
+            if (showGrid) {
+                drawGrid();
+            }
+            
+            // Draw saved spaces
+            savedSpaces.forEach((space, index) => {
+                drawPolygon(space.polygon, space.color, space.id, index === editingSpaceId);
+            });
+            
+            // Draw current polygon being created
+            if (currentPolygon.length > 0) {
+                drawCurrentPolygon();
+            }
+        }
+
+        function drawGrid() {
+            ctx.strokeStyle = 'rgba(100, 116, 139, 0.3)';
+            ctx.lineWidth = 1;
+            
+            const gridSize = 50;
+            
+            for (let x = 0; x < canvas.width; x += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+            }
+            
+            for (let y = 0; y < canvas.height; y += gridSize) {
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+        }
+
+        function drawPolygon(polygon, color, label, isEditing) {
+            if (polygon.length === 0) return;
+            
+            // Convert normalized coordinates (0-1) back to canvas pixels
+            const pixelPolygon = polygon.map(point => ({
+                x: point.x * canvas.width,
+                y: point.y * canvas.height
+            }));
+            
+            // Draw filled polygon
+            ctx.fillStyle = color + '40'; // 25% opacity
+            ctx.beginPath();
+            ctx.moveTo(pixelPolygon[0].x, pixelPolygon[0].y);
+            for (let i = 1; i < pixelPolygon.length; i++) {
+                ctx.lineTo(pixelPolygon[i].x, pixelPolygon[i].y);
+            }
+            ctx.closePath();
+            ctx.fill();
+            
+            // Draw border
+            ctx.strokeStyle = color;
+            ctx.lineWidth = isEditing ? 4 : 2;
+            ctx.stroke();
+            
+            // Draw points
+            pixelPolygon.forEach((point, i) => {
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 6, 0, Math.PI * 2);
+                ctx.fill();
+                
+                // Point numbers
+                ctx.fillStyle = 'white';
+                ctx.font = 'bold 12px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(i + 1, point.x, point.y + 4);
+            });
+            
+            // Label
+            const centerX = pixelPolygon.reduce((sum, p) => sum + p.x, 0) / pixelPolygon.length;
+            const centerY = pixelPolygon.reduce((sum, p) => sum + p.y, 0) / pixelPolygon.length;
+            
+            ctx.fillStyle = color;
+            ctx.font = 'bold 16px Arial';
+            ctx.textAlign = 'center';
+            ctx.fillText(label, centerX, centerY);
+        }
+
+        function drawCurrentPolygon() {
+            // Draw points
+            currentPolygon.forEach((point, i) => {
+                ctx.fillStyle = currentColor;
+                ctx.beginPath();
+                ctx.arc(point.x, point.y, 8, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.fillStyle = 'white';
+                ctx.font = 'bold 14px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText(i + 1, point.x, point.y + 5);
+            });
+            
+            // Draw lines between points
+            if (currentPolygon.length > 1) {
+                ctx.strokeStyle = currentColor;
+                ctx.lineWidth = 3;
+                ctx.setLineDash([5, 5]);
+                ctx.beginPath();
+                ctx.moveTo(currentPolygon[0].x, currentPolygon[0].y);
+                for (let i = 1; i < currentPolygon.length; i++) {
+                    ctx.lineTo(currentPolygon[i].x, currentPolygon[i].y);
+                }
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+        }
+
+        function updateSpaceList() {
+            const listDiv = document.getElementById('spaceList');
+            document.getElementById('spaceCount').textContent = savedSpaces.length;
+            
+            if (savedSpaces.length === 0) {
+                listDiv.innerHTML = `
+                    <p style="text-align: center; color: var(--text-secondary); padding: 2rem;">
+                        No spaces defined yet.<br>
+                        Click "New Parking Space" to start.
+                    </p>
+                `;
+                return;
+            }
+            
+            listDiv.innerHTML = savedSpaces.map((space, index) => `
+                <div class="space-item ${editingSpaceId === index ? 'editing' : ''}" onclick="selectSpace(${index})">
+                    <div style="display: flex; align-items: center; gap: 0.75rem;">
+                        <div style="width: 20px; height: 20px; background: ${space.color}; border-radius: 4px;"></div>
+                        <div>
+                            <strong>${space.id}</strong>
+                            <p style="font-size: 0.85rem; color: var(--text-secondary); margin: 0;">
+                                ${space.polygon.length} points
+                            </p>
+                        </div>
+                    </div>
+                    <button onclick="deleteSpace(${index}); event.stopPropagation();" 
+                            class="btn btn-secondary" style="padding: 0.25rem 0.75rem; font-size: 0.85rem;">
+                        Delete
+                    </button>
+                </div>
+            `).join('');
+        }
+
+        function selectSpace(index) {
+            editingSpaceId = (editingSpaceId === index) ? null : index;
+            updateSpaceList();
+            drawAll();
+        }
+
+        function deleteSpace(index) {
+            event.stopPropagation();
+            if (confirm(`Delete ${savedSpaces[index].id}?`)) {
+                savedSpaces.splice(index, 1);
+                // Renumber spaces
+                savedSpaces.forEach((space, i) => {
+                    space.id = 'SPACE-' + String(i + 1).padStart(3, '0');
+                });
+                editingSpaceId = null;
+                updateSpaceList();
+                drawAll();
+            }
+        }
+
+        function clearAllSpaces() {
+            if (savedSpaces.length === 0) {
+                alert('No spaces to clear.');
+                return;
+            }
+            
+            if (confirm(`Delete all ${savedSpaces.length} parking spaces?`)) {
+                savedSpaces = [];
+                currentPolygon = [];
+                isDrawing = false;
+                editingSpaceId = null;
+                updateSpaceList();
+                updateUI();
+                drawAll();
+            }
+        }
+
+        async function saveAllSpaces() {
+            if (savedSpaces.length === 0) {
+                alert('No spaces to save. Please define at least one parking space.');
+                return;
+            }
+            
+            try {
+                // Prepare calibration data
+                const calibrationData = savedSpaces.map(space => ({
+                    id: space.id,
+                    polygon: space.polygon,
+                    color: space.color,
+                    status: 'available'  // Default status, will be updated by detection
+                }));
+                
+                console.log('Saving calibration data:', calibrationData);
+                
+                const response = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        calibration_data: calibrationData,
+                        total_spaces: savedSpaces.length,
+                        timestamp: new Date().toISOString()
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.success) {
+                    alert(`✅ Successfully saved ${savedSpaces.length} parking spaces!\n\nThe layout has been updated. Go to the Live View page to see your calibrated spaces.`);
+                    console.log('Save result:', result);
+                } else {
+                    alert('❌ Error saving calibration data.');
+                }
+            } catch (error) {
+                alert('❌ Error: ' + error.message);
+                console.error('Save error:', error);
+            }
+        }
+
+        function selectColor(color) {
+            currentColor = color;
+            document.querySelectorAll('.color-option').forEach(el => {
+                el.classList.remove('active');
+                if (el.dataset.color === color) {
+                    el.classList.add('active');
+                }
+            });
+        }
+
+        function toggleGrid() {
+            showGrid = !showGrid;
+            drawAll();
+        }
+
+        function updateUI() {
+            document.getElementById('pointCount').textContent = `${currentPolygon.length}/4`;
+            document.getElementById('currentSpaceNum').textContent = 
+                isDrawing ? `Space ${savedSpaces.length + 1}` : '--';
+            
+            document.getElementById('undoBtn').disabled = currentPolygon.length === 0;
+            document.getElementById('clearBtn').disabled = currentPolygon.length === 0;
+        }
+
+        function exportCalibration() {
+            if (savedSpaces.length === 0) {
+                alert('No calibration data to export.');
+                return;
+            }
+            
+            const data = {
+                version: '1.0',
+                timestamp: new Date().toISOString(),
+                spaces: savedSpaces,
+                canvas_size: {width: canvas.width, height: canvas.height}
+            };
+            
+            const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `parking_calibration_${new Date().toISOString().split('T')[0]}.json`;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        function importCalibration() {
+            const input = document.createElement('input');
+            input.type = 'file';
+            input.accept = '.json';
+            input.onchange = function(e) {
+                const file = e.target.files[0];
+                const reader = new FileReader();
+                reader.onload = function(event) {
+                    try {
+                        const data = JSON.parse(event.target.result);
+                        if (data.spaces && Array.isArray(data.spaces)) {
+                            if (savedSpaces.length > 0) {
+                                if (!confirm('This will replace existing calibration. Continue?')) {
+                                    return;
+                                }
+                            }
+                            savedSpaces = data.spaces;
+                            
+                            // Coordinates are already normalized (0-1), ready to use
+                            console.log('Imported normalized calibration data');
+                            
+                            updateSpaceList();
+                            drawAll();
+                            alert(`Imported ${savedSpaces.length} parking spaces.`);
+                        } else {
+                            alert('Invalid calibration file format.');
+                        }
+                    } catch (error) {
+                        alert('Error reading file: ' + error.message);
+                    }
+                };
+                reader.readAsText(file);
+            };
+            input.click();
+        }
+
+        // Configuration management
+        async function loadConfig() {
+            try {
+                const response = await fetch('/api/config');
+                const config = await response.json();
+                
+                document.getElementById('detectionThreshold').value = config.detection_threshold;
+                document.getElementById('updateInterval').value = config.update_interval;
+            } catch (error) {
+                console.error('Error loading config:', error);
+            }
+        }
+
+        document.getElementById('configForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const config = {
+                detection_threshold: parseFloat(document.getElementById('detectionThreshold').value),
+                update_interval: parseInt(document.getElementById('updateInterval').value)
+            };
+
+            try {
+                const response = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(config)
+                });
+                
+                const result = await response.json();
+                document.getElementById('configMessage').innerHTML = 
+                    '<p style="color: var(--success-color);">✓ Configuration saved successfully!</p>';
+                
+                setTimeout(() => {
+                    document.getElementById('configMessage').innerHTML = '';
+                }, 3000);
+            } catch (error) {
+                document.getElementById('configMessage').innerHTML = 
+                    '<p style="color: var(--danger-color);">✗ Error saving configuration</p>';
+            }
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            clearInterval(feedUpdateInterval);
+        });
+    </script>
+</body>
+</html>
