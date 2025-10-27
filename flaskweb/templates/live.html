@@ -370,8 +370,19 @@
                 const response = await fetch('/api/camera/feed');
                 const data = await response.json();
                 
+                console.log('Camera feed response:', data); // Debug log
+                
                 if (data.image_url) {
-                    liveFeed.src = data.image_url + '?t=' + Date.now();
+                    // Handle both base64 and regular URLs
+                    if (data.image_url.startsWith('data:image')) {
+                        // Base64 encoded image
+                        liveFeed.src = data.image_url;
+                    } else {
+                        // Regular URL with cache buster
+                        liveFeed.src = data.image_url + '?t=' + Date.now();
+                    }
+                } else {
+                    console.error('No image_url in response');
                 }
                 
                 // Update FPS
@@ -383,6 +394,8 @@
                 document.getElementById('processingTime').textContent = processingTime + 'ms';
             } catch (error) {
                 console.error('Error loading feed:', error);
+                // Show error on page
+                liveFeed.alt = 'Error loading camera feed: ' + error.message;
             }
         }
 
@@ -391,9 +404,19 @@
                 const response = await fetch('/api/parking/status');
                 const data = await response.json();
                 
+                console.log('Parking data received:', data); // Debug log
+                
                 detectionData.available = data.available_spaces;
                 detectionData.occupied = data.occupied_spaces;
                 detectionData.spaces = data.spaces || [];
+                
+                // Check if we have calibrated spaces
+                const hasPolygons = detectionData.spaces.some(s => s.polygon && s.polygon.length > 0);
+                console.log('Has calibrated polygons:', hasPolygons);
+                
+                if (!hasPolygons) {
+                    console.warn('⚠️ No calibrated spaces found. Please calibrate in /admin');
+                }
                 
                 updateUI(data);
                 drawDetectionOverlay();
@@ -444,26 +467,24 @@
             
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             
-            // TODO: Replace with actual detection data from your ML model
-            // For now, simulate parking space polygons
-            const scaleX = canvas.width / 1280;
-            const scaleY = canvas.height / 720;
+            // Only draw if we have actual calibrated spaces with polygon data
+            if (!detectionData.spaces || detectionData.spaces.length === 0) {
+                return; // No spaces to draw
+            }
             
-            detectionData.spaces.forEach((space, index) => {
-                // Simulate polygon positions (replace with actual calibration data)
-                const row = Math.floor(index / 10);
-                const col = index % 10;
-                const x = 50 + col * 120;
-                const y = 50 + row * 140;
+            detectionData.spaces.forEach((space) => {
+                // Only draw if the space has polygon data from calibration
+                if (!space.polygon || space.polygon.length < 3) {
+                    return; // Skip spaces without proper polygon data
+                }
                 
-                const polygon = [
-                    {x: x * scaleX, y: y * scaleY},
-                    {x: (x + 100) * scaleX, y: y * scaleY},
-                    {x: (x + 100) * scaleX, y: (y + 120) * scaleY},
-                    {x: x * scaleX, y: (y + 120) * scaleY}
-                ];
+                // Convert normalized coordinates (0-1) to canvas pixels
+                const polygon = space.polygon.map(point => ({
+                    x: point.x * canvas.width,
+                    y: point.y * canvas.height
+                }));
                 
-                // Draw based on status
+                // Determine color based on status
                 const isAvailable = space.status === 'available';
                 const color = isAvailable ? '#10b981' : '#ef4444';
                 const fillColor = isAvailable ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)';
