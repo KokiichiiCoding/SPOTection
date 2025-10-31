@@ -5,6 +5,18 @@ import json
 from datetime import datetime
 import threading
 import time
+import logging
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Import camera manager
 from camera_manager import create_camera_feed
@@ -26,33 +38,58 @@ for folder in CONFIG.values():
         os.makedirs(folder, exist_ok=True)
 
 # ============================================
-# CAMERA CONFIGURATION - CHANGE THIS!
+# CAMERA CONFIGURATION - Environment Variable Support
 # ============================================
 # Options: 'placeholder', 'webcam', 'http_mjpeg', 'http_snapshot', 'rtsp'
+# Can be configured via environment variables or defaults below
 
-# For testing with a real feed, you need the DIRECT stream URL
-# Insecam URLs won't work directly - you need to extract the actual stream
+# Get camera configuration from environment variables or use defaults
+CAMERA_SOURCE = os.getenv(
+    'CAMERA_SOURCE',
+    'http_snapshot'  # Default
+)
 
-# Option 1: Placeholder (for now)
-CAMERA_SOURCE = 'http_snapshot'
-CAMERA_URL = 'https://resource6.earthcam.net/v0/object/GtVJZlL4VnwZ3X0VJw8BsaKt465wCMA_ACspS6wYgxexPT5u4kEum-0uKZRnSm3SnJlL_j-pyYnDEWnIWTyt9Q!!.jpg'
+CAMERA_URL = os.getenv(
+    'CAMERA_URL',
+    'https://resource6.earthcam.net/v0/object/GtVJZlL4VnwZ3X0VJw8BsaKt465wCMA_ACspS6wYgxexPT5u4kEum-0uKZRnSm3SnJlL_j-pyYnDEWnIWTyt9Q!!.jpg'
+)
 
-# Option 2: Try this public demo MJPEG stream
-# CAMERA_SOURCE = 'http_mjpeg'
-# CAMERA_URL = 'http://your-direct-stream-url.com/video.mjpg'
+CAMERA_TIMEOUT = int(os.getenv('CAMERA_TIMEOUT', '10'))  # seconds
+CAMERA_MAX_RETRIES = int(os.getenv('CAMERA_MAX_RETRIES', '3'))
 
-# Option 3: HTTP snapshot (updates on each request)
-# CAMERA_SOURCE = 'http_snapshot'
-# CAMERA_URL = 'http://camera-ip/snapshot.jpg'
+# Validate camera source
+VALID_SOURCES = ['placeholder', 'webcam', 'http_mjpeg', 'http_snapshot', 'rtsp']
+if CAMERA_SOURCE not in VALID_SOURCES:
+    logger.warning(f"Invalid CAMERA_SOURCE '{CAMERA_SOURCE}'. Valid options: {VALID_SOURCES}")
+    logger.warning("Falling back to 'placeholder' mode")
+    CAMERA_SOURCE = 'placeholder'
 
-# Initialize camera feed
+# Validate URL is provided for sources that require it
+if CAMERA_SOURCE in ['http_mjpeg', 'http_snapshot', 'rtsp'] and not CAMERA_URL:
+    logger.error(f"CAMERA_URL required for source type '{CAMERA_SOURCE}'")
+    logger.warning("Falling back to 'placeholder' mode")
+    CAMERA_SOURCE = 'placeholder'
+
+# Initialize camera feed with enhanced configuration
+logger.info(f"Initializing camera: source={CAMERA_SOURCE}, timeout={CAMERA_TIMEOUT}s, retries={CAMERA_MAX_RETRIES}")
 if CAMERA_URL:
+    # Mask sensitive parts of URL in logs
+    display_url = CAMERA_URL[:50] + '...' if len(CAMERA_URL) > 50 else CAMERA_URL
+    logger.info(f"Camera URL: {display_url}")
     camera = create_camera_feed(CAMERA_SOURCE, CAMERA_URL)
 else:
     camera = create_camera_feed(CAMERA_SOURCE)
 
-print(f"📹 Camera initialized: {CAMERA_SOURCE}")
-print(f"   Info: {camera.get_info()}")
+# Log camera initialization status
+camera_info = camera.get_info()
+logger.info(f"Camera initialized: {camera_info}")
+
+# Validate camera is working
+if camera_info.get('health') == 'unhealthy':
+    logger.error(f"Camera health check failed: {camera_info.get('last_error')}")
+    logger.warning("Camera may not be working properly. Check configuration.")
+elif camera_info.get('health') == 'healthy':
+    logger.info("✅ Camera is healthy and ready")
 # ============================================
 
 # Mock data for alpha testing (replace with actual ML model integration)
@@ -235,15 +272,38 @@ def camera_feed():
     try:
         # Get frame as base64 encoded image
         image_data = camera.get_frame('base64')
-        
+
         return jsonify({
             'image_url': image_data,
             'timestamp': datetime.now().isoformat(),
-            'source': CAMERA_SOURCE
+            'source': CAMERA_SOURCE,
+            'source_url': CAMERA_URL if CAMERA_URL else 'N/A'
         })
     except Exception as e:
-        print(f"Error getting camera feed: {e}")
+        logger.error(f"Error getting camera feed: {e}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/camera/health', methods=['GET'])
+def camera_health():
+    """Get camera health status and diagnostic information"""
+    try:
+        camera_info = camera.get_info()
+        return jsonify({
+            'success': True,
+            'camera_info': camera_info,
+            'configuration': {
+                'source_type': CAMERA_SOURCE,
+                'timeout': CAMERA_TIMEOUT,
+                'max_retries': CAMERA_MAX_RETRIES
+            },
+            'timestamp': datetime.now().isoformat()
+        })
+    except Exception as e:
+        logger.error(f"Error getting camera health: {e}")
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
 
 @app.route('/api/camera/screenshot', methods=['POST'])
 def save_screenshot():

@@ -29,8 +29,15 @@
         <div class="stats-grid" style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">
             <div class="stat-card">
                 <div class="stat-content">
+                    <h3>Camera Source</h3>
+                    <p class="stat-number" style="font-size: 1rem;" id="cameraSource">--</p>
+                </div>
+            </div>
+
+            <div class="stat-card">
+                <div class="stat-content">
                     <h3>Camera Status</h3>
-                    <p class="stat-number" style="font-size: 1.2rem;">
+                    <p class="stat-number" style="font-size: 1.2rem;" id="cameraStatus">
                         <span class="indicator-dot green"></span> Online
                     </p>
                 </div>
@@ -141,27 +148,50 @@
             try {
                 const response = await fetch('/api/camera/feed');
                 const data = await response.json();
-                
+
                 console.log('Monitor camera feed:', data); // Debug log
-                
+
                 if (data.image_url) {
                     cameraFeed.onload = function() {
                         // Feed loaded successfully
                         console.log('Camera feed image loaded');
+                        updateCameraStatus(true);
                     };
-                    
+
                     cameraFeed.onerror = function() {
                         console.error('Failed to load camera feed image');
+                        updateCameraStatus(false);
                     };
-                    
+
                     // Set the image source
                     cameraFeed.src = data.image_url;
+
+                    // Update camera source info
+                    if (data.source) {
+                        const sourceDisplay = data.source.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+                        document.getElementById('cameraSource').textContent = sourceDisplay;
+                    }
+
+                    // Update FPS and detection time
+                    updateFPS();
+                    updateLastDetection();
                 } else {
                     console.error('No image_url in API response');
+                    updateCameraStatus(false);
                 }
             } catch (error) {
                 console.error('Error loading camera feed:', error);
                 cameraFeed.alt = 'Error loading feed: ' + error.message;
+                updateCameraStatus(false);
+            }
+        }
+
+        function updateCameraStatus(isOnline) {
+            const statusElement = document.getElementById('cameraStatus');
+            if (isOnline) {
+                statusElement.innerHTML = '<span class="indicator-dot green"></span> Online';
+            } else {
+                statusElement.innerHTML = '<span class="indicator-dot red"></span> Offline';
             }
         }
 
