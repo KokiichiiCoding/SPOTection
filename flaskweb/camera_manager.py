@@ -1,5 +1,5 @@
 """
-Simple Camera Manager - Quick setup for alpha testing
+Enhanced Camera Manager - Beta version with improved error handling and retry logic
 """
 
 import base64
@@ -7,6 +7,11 @@ from datetime import datetime
 from io import BytesIO
 import time
 import threading
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -32,29 +37,41 @@ except ImportError:
 
 
 class SimpleCameraFeed:
-    """Simple camera feed for quick alpha testing"""
-    
-    def __init__(self, source_type='placeholder', source_url=None):
+    """Enhanced camera feed with improved error handling and retry logic"""
+
+    def __init__(self, source_type='placeholder', source_url=None, timeout=10, max_retries=3):
         self.source_type = source_type
         self.source_url = source_url
         self.current_frame = None
         self.last_update = None
         self.is_running = False
         self.thread = None
-        
+        self.timeout = timeout
+        self.max_retries = max_retries
+        self.connection_status = 'initializing'
+        self.error_count = 0
+        self.last_error = None
+        self.successful_frames = 0
+
+        logger.info(f"Initializing camera: type={source_type}, url={source_url}")
+
         if source_type == 'placeholder':
             self._create_placeholder()
+            self.connection_status = 'placeholder'
         elif source_type == 'http_mjpeg':
             self._start_http_stream()
         elif source_type == 'http_snapshot':
             # HTTP snapshots are fetched on-demand
-            pass
+            self.connection_status = 'ready'
+            logger.info("HTTP snapshot mode - will fetch frames on demand")
         elif source_type == 'webcam':
             self._start_webcam()
         elif source_type == 'rtsp':
             self._start_rtsp()
         else:
+            logger.warning(f"Unknown source type: {source_type}, using placeholder")
             self._create_placeholder()
+            self.connection_status = 'placeholder'
     
     def _create_placeholder(self):
         """Create a placeholder image"""
@@ -145,19 +162,24 @@ class SimpleCameraFeed:
     def _start_webcam(self):
         """Start webcam capture"""
         if not CV2_AVAILABLE:
-            print("❌ OpenCV required for webcam")
+            logger.error("OpenCV required for webcam")
+            self.connection_status = 'error'
+            self.last_error = "OpenCV not available"
             self._create_placeholder()
             return
-        
+
         camera_index = int(self.source_url) if self.source_url else 0
         self.cap = cv2.VideoCapture(camera_index)
-        
+
         if not self.cap.isOpened():
-            print(f"❌ Failed to open webcam {camera_index}")
+            logger.error(f"Failed to open webcam {camera_index}")
+            self.connection_status = 'error'
+            self.last_error = f"Cannot open webcam {camera_index}"
             self._create_placeholder()
             return
-        
-        print(f"✅ Webcam {camera_index} opened")
+
+        logger.info(f"Webcam {camera_index} opened successfully")
+        self.connection_status = 'connected'
         self.is_running = True
         self.thread = threading.Thread(target=self._capture_loop, daemon=True)
         self.thread.start()
@@ -165,18 +187,23 @@ class SimpleCameraFeed:
     def _start_rtsp(self):
         """Start RTSP stream"""
         if not CV2_AVAILABLE:
-            print("❌ OpenCV required for RTSP")
+            logger.error("OpenCV required for RTSP")
+            self.connection_status = 'error'
+            self.last_error = "OpenCV not available"
             self._create_placeholder()
             return
-        
+
         self.cap = cv2.VideoCapture(self.source_url)
-        
+
         if not self.cap.isOpened():
-            print(f"❌ Failed to open RTSP stream: {self.source_url}")
+            logger.error(f"Failed to open RTSP stream: {self.source_url}")
+            self.connection_status = 'error'
+            self.last_error = f"Cannot open RTSP stream"
             self._create_placeholder()
             return
-        
-        print(f"✅ RTSP stream opened")
+
+        logger.info(f"RTSP stream opened successfully")
+        self.connection_status = 'connected'
         self.is_running = True
         self.thread = threading.Thread(target=self._capture_loop, daemon=True)
         self.thread.start()
@@ -203,18 +230,42 @@ class SimpleCameraFeed:
                 time.sleep(1)
     
     def _fetch_http_snapshot(self):
-        """Fetch a single snapshot from HTTP URL"""
+        """Fetch a single snapshot from HTTP URL with retry logic"""
         if not REQUESTS_AVAILABLE or not CV2_AVAILABLE:
+            self.connection_status = 'error'
+            self.last_error = "Missing dependencies (requests or cv2)"
             return None
-        
-        try:
-            response = requests.get(self.source_url, timeout=5)
-            if response.status_code == 200:
-                img_array = np.frombuffer(response.content, dtype=np.uint8)
-                frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-                return frame
-        except Exception as e:
-            print(f"❌ HTTP snapshot error: {e}")
+
+        for attempt in range(self.max_retries):
+            try:
+                response = requests.get(self.source_url, timeout=self.timeout)
+                if response.status_code == 200:
+                    img_array = np.frombuffer(response.content, dtype=np.uint8)
+                    frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+
+                    if frame is not None:
+                        self.connection_status = 'connected'
+                        self.successful_frames += 1
+                        self.error_count = 0
+                        self.last_error = None
+                        return frame
+                    else:
+                        raise ValueError("Failed to decode image")
+                else:
+                    raise ValueError(f"HTTP {response.status_code}")
+
+            except Exception as e:
+                self.error_count += 1
+                self.last_error = str(e)
+
+                if attempt < self.max_retries - 1:
+                    wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
+                    logger.warning(f"HTTP snapshot error (attempt {attempt+1}/{self.max_retries}): {e}. Retrying in {wait_time}s...")
+                    time.sleep(wait_time)
+                else:
+                    logger.error(f"HTTP snapshot failed after {self.max_retries} attempts: {e}")
+                    self.connection_status = 'error'
+
         return None
     
     def get_frame(self, format='base64'):
@@ -269,13 +320,40 @@ class SimpleCameraFeed:
             return False
     
     def get_info(self):
-        """Get camera info"""
-        return {
+        """Get comprehensive camera info including health status"""
+        status_info = {
             'source_type': self.source_type,
-            'source_url': self.source_url,
+            'source_url': self.source_url if self.source_url else 'N/A',
             'status': 'running' if self.is_running else 'stopped',
-            'last_update': self.last_update.isoformat() if self.last_update else None
+            'connection_status': self.connection_status,
+            'last_update': self.last_update.isoformat() if self.last_update else None,
+            'successful_frames': self.successful_frames,
+            'error_count': self.error_count,
+            'last_error': self.last_error,
+            'health': self._get_health_status()
         }
+
+        # Add time since last update
+        if self.last_update:
+            time_since_update = (datetime.now() - self.last_update).total_seconds()
+            status_info['seconds_since_last_frame'] = round(time_since_update, 2)
+
+        return status_info
+
+    def _get_health_status(self):
+        """Determine overall health status"""
+        if self.connection_status == 'placeholder':
+            return 'placeholder'
+        elif self.connection_status == 'error':
+            return 'unhealthy'
+        elif self.connection_status in ['connected', 'ready', 'running']:
+            if self.last_update:
+                time_since_update = (datetime.now() - self.last_update).total_seconds()
+                if time_since_update > 30:
+                    return 'stale'
+            return 'healthy'
+        else:
+            return 'unknown'
     
     def stop(self):
         """Cleanup"""

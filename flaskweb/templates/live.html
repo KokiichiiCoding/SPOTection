@@ -247,8 +247,12 @@
                 <div class="detection-overlay">
                     <h4>🎯 Detection Info</h4>
                     <div class="detection-stat">
-                        <span>Confidence:</span>
-                        <span id="confidence">95%</span>
+                        <span>Camera:</span>
+                        <span id="cameraSource">--</span>
+                    </div>
+                    <div class="detection-stat">
+                        <span>Status:</span>
+                        <span id="cameraStatus"><span class="indicator-dot green"></span> Connected</span>
                     </div>
                     <div class="detection-stat">
                         <span>FPS:</span>
@@ -369,9 +373,9 @@
             try {
                 const response = await fetch('/api/camera/feed');
                 const data = await response.json();
-                
+
                 console.log('Camera feed response:', data); // Debug log
-                
+
                 if (data.image_url) {
                     // Handle both base64 and regular URLs
                     if (data.image_url.startsWith('data:image')) {
@@ -384,11 +388,20 @@
                 } else {
                     console.error('No image_url in response');
                 }
-                
+
+                // Update camera info
+                if (data.source) {
+                    const sourceDisplay = data.source.replace('_', ' ').replace(/\b\w/g, l => l.toUpperCase());
+                    document.getElementById('cameraSource').textContent = sourceDisplay;
+                }
+
+                // Update camera status with health indicator
+                updateCameraStatus(data);
+
                 // Update FPS
                 const fps = Math.floor(Math.random() * 3) + 28; // Simulate 28-30 FPS
                 document.getElementById('fps').textContent = fps;
-                
+
                 // Update processing time
                 const processingTime = Math.floor(Math.random() * 20) + 30; // 30-50ms
                 document.getElementById('processingTime').textContent = processingTime + 'ms';
@@ -396,6 +409,17 @@
                 console.error('Error loading feed:', error);
                 // Show error on page
                 liveFeed.alt = 'Error loading camera feed: ' + error.message;
+                document.getElementById('cameraStatus').innerHTML = '<span class="indicator-dot red"></span> Error';
+            }
+        }
+
+        function updateCameraStatus(data) {
+            const statusElement = document.getElementById('cameraStatus');
+            // Simple status based on successful feed fetch
+            if (data.image_url) {
+                statusElement.innerHTML = '<span class="indicator-dot green"></span> Connected';
+            } else {
+                statusElement.innerHTML = '<span class="indicator-dot red"></span> Disconnected';
             }
         }
 
