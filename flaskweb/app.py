@@ -40,32 +40,32 @@ for folder in CONFIG.values():
 # ============================================
 # CAMERA CONFIGURATION - Environment Variable Support
 # ============================================
-# Options: 'placeholder', 'webcam', 'http_mjpeg', 'http_snapshot', 'rtsp'
+# Options: 'placeholder', 'webcam', 'http_mjpeg', 'http_snapshot', 'rtsp', 'hls', 'webpage'
 # Can be configured via environment variables or defaults below
 
 # Get camera configuration from environment variables or use defaults
 CAMERA_SOURCE = os.getenv(
     'CAMERA_SOURCE',
-    'http_snapshot'  # Default
+    'webpage'  # Default - auto-extract from webpage
 )
 
 CAMERA_URL = os.getenv(
     'CAMERA_URL',
-    'https://resource6.earthcam.net/v0/object/GtVJZlL4VnwZ3X0VJw8BsaKt465wCMA_ACspS6wYgxexPT5u4kEum-0uKZRnSm3SnJlL_j-pyYnDEWnIWTyt9Q!!.jpg'
+    'https://taco-about-python.com'  # Default to taco-about-python livestream
 )
 
 CAMERA_TIMEOUT = int(os.getenv('CAMERA_TIMEOUT', '10'))  # seconds
 CAMERA_MAX_RETRIES = int(os.getenv('CAMERA_MAX_RETRIES', '3'))
 
 # Validate camera source
-VALID_SOURCES = ['placeholder', 'webcam', 'http_mjpeg', 'http_snapshot', 'rtsp']
+VALID_SOURCES = ['placeholder', 'webcam', 'http_mjpeg', 'http_snapshot', 'rtsp', 'hls', 'webpage']
 if CAMERA_SOURCE not in VALID_SOURCES:
     logger.warning(f"Invalid CAMERA_SOURCE '{CAMERA_SOURCE}'. Valid options: {VALID_SOURCES}")
     logger.warning("Falling back to 'placeholder' mode")
     CAMERA_SOURCE = 'placeholder'
 
 # Validate URL is provided for sources that require it
-if CAMERA_SOURCE in ['http_mjpeg', 'http_snapshot', 'rtsp'] and not CAMERA_URL:
+if CAMERA_SOURCE in ['http_mjpeg', 'http_snapshot', 'rtsp', 'hls', 'webpage'] and not CAMERA_URL:
     logger.error(f"CAMERA_URL required for source type '{CAMERA_SOURCE}'")
     logger.warning("Falling back to 'placeholder' mode")
     CAMERA_SOURCE = 'placeholder'
