@@ -35,6 +35,13 @@ except ImportError:
     REQUESTS_AVAILABLE = False
     print("⚠️ Requests not installed. Install with: pip install requests")
 
+try:
+    from stream_extractor import StreamExtractor
+    STREAM_EXTRACTOR_AVAILABLE = True
+except ImportError:
+    STREAM_EXTRACTOR_AVAILABLE = False
+    logger.warning("StreamExtractor not available - webpage extraction disabled")
+
 
 class SimpleCameraFeed:
     """Enhanced camera feed with improved error handling and retry logic"""
@@ -55,7 +62,10 @@ class SimpleCameraFeed:
 
         logger.info(f"Initializing camera: type={source_type}, url={source_url}")
 
-        if source_type == 'placeholder':
+        # Auto-extract stream from webpage if source_type is 'webpage'
+        if source_type == 'webpage' and source_url:
+            self._extract_and_initialize_from_webpage(source_url)
+        elif source_type == 'placeholder':
             self._create_placeholder()
             self.connection_status = 'placeholder'
         elif source_type == 'http_mjpeg':
@@ -64,6 +74,8 @@ class SimpleCameraFeed:
             # HTTP snapshots are fetched on-demand
             self.connection_status = 'ready'
             logger.info("HTTP snapshot mode - will fetch frames on demand")
+        elif source_type == 'hls':
+            self._start_hls_stream()
         elif source_type == 'webcam':
             self._start_webcam()
         elif source_type == 'rtsp':
@@ -207,7 +219,95 @@ class SimpleCameraFeed:
         self.is_running = True
         self.thread = threading.Thread(target=self._capture_loop, daemon=True)
         self.thread.start()
-    
+
+    def _extract_and_initialize_from_webpage(self, webpage_url):
+        """Extract video stream from webpage and initialize appropriate handler"""
+        if not STREAM_EXTRACTOR_AVAILABLE:
+            logger.error("StreamExtractor not available - cannot extract from webpage")
+            self.connection_status = 'error'
+            self.last_error = "StreamExtractor module missing"
+            self._create_placeholder()
+            return
+
+        logger.info(f"Attempting to extract stream from webpage: {webpage_url}")
+
+        try:
+            extractor = StreamExtractor()
+            result = extractor.extract_stream_url(webpage_url)
+
+            if result:
+                stream_type = result['type']
+                stream_url = result['url']
+
+                logger.info(f"Extracted {stream_type} stream: {stream_url}")
+
+                # Update source info
+                self.extracted_url = stream_url
+                self.extraction_info = result.get('info', 'Extracted from webpage')
+
+                # Initialize appropriate handler based on extracted type
+                if stream_type == 'youtube':
+                    # For YouTube, use the thumbnail as a snapshot
+                    self.source_type = 'http_snapshot'
+                    self.source_url = stream_url
+                    self.connection_status = 'ready'
+                    logger.info(f"Using YouTube thumbnail: {stream_url}")
+
+                elif stream_type == 'hls':
+                    # HLS stream
+                    self.source_url = stream_url
+                    self._start_hls_stream()
+
+                elif stream_type == 'video':
+                    # Direct video URL - try as snapshot first
+                    self.source_url = stream_url
+                    self.source_type = 'http_snapshot'
+                    self.connection_status = 'ready'
+
+                else:
+                    logger.warning(f"Unknown extracted type: {stream_type}")
+                    self._create_placeholder()
+
+            else:
+                logger.error("Could not extract stream from webpage")
+                self.connection_status = 'error'
+                self.last_error = "Stream extraction failed"
+                self._create_placeholder()
+
+        except Exception as e:
+            logger.error(f"Error during stream extraction: {e}")
+            self.connection_status = 'error'
+            self.last_error = str(e)
+            self._create_placeholder()
+
+    def _start_hls_stream(self):
+        """Start HLS (.m3u8) stream using OpenCV"""
+        if not CV2_AVAILABLE:
+            logger.error("OpenCV required for HLS streams")
+            self.connection_status = 'error'
+            self.last_error = "OpenCV not available"
+            self._create_placeholder()
+            return
+
+        logger.info(f"Starting HLS stream: {self.source_url}")
+
+        # Try to open HLS stream with OpenCV
+        self.cap = cv2.VideoCapture(self.source_url)
+
+        if not self.cap.isOpened():
+            logger.error(f"Failed to open HLS stream: {self.source_url}")
+            logger.info("Tip: Some HLS streams may require ffmpeg or additional codecs")
+            self.connection_status = 'error'
+            self.last_error = "Cannot open HLS stream"
+            self._create_placeholder()
+            return
+
+        logger.info("HLS stream opened successfully")
+        self.connection_status = 'connected'
+        self.is_running = True
+        self.thread = threading.Thread(target=self._capture_loop, daemon=True)
+        self.thread.start()
+
     def _capture_loop(self):
         """Background capture loop for OpenCV sources"""
         while self.is_running:
