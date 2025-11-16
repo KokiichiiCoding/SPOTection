@@ -26,7 +26,15 @@
             <p class="last-updated">Last updated: <span id="lastUpdated">--</span></p>
         </div>
 
-        <div class="stats-grid">
+        <div id="calibrationNotice" class="notice-card hidden">
+            <h3>Calibration Required</h3>
+            <p>
+                Parking occupancy data will appear after an administrator defines the parking spaces on the
+                <a href="/admin">Admin calibration screen</a>.
+            </p>
+        </div>
+
+        <div class="stats-grid" id="statsGrid">
             <div class="stat-card available">
                 <div class="stat-icon">✓</div>
                 <div class="stat-content">
@@ -60,7 +68,7 @@
             </div>
         </div>
 
-        <div class="content-section">
+        <div class="content-section" id="statusSection">
             <h3>Parking Lot Status</h3>
             <div class="status-indicator">
                 <span class="indicator-dot" id="statusIndicator"></span>
@@ -74,6 +82,7 @@
                 <button onclick="refreshData()" class="btn btn-primary">Refresh Data</button>
                 <button onclick="window.location.href='/monitor'" class="btn btn-secondary">View Live Feed</button>
                 <button onclick="window.location.href='/analytics'" class="btn btn-secondary">View Analytics</button>
+                <button onclick="window.location.href='/admin'" class="btn btn-secondary">Calibrate Lot</button>
             </div>
         </div>
     </div>
@@ -81,11 +90,42 @@
     <script>
         let updateInterval;
 
+        function updateCalibrationVisibility(isCalibrated) {
+            const statsGrid = document.getElementById('statsGrid');
+            const statusSection = document.getElementById('statusSection');
+            const notice = document.getElementById('calibrationNotice');
+
+            if (!isCalibrated) {
+                notice.classList.remove('hidden');
+                statsGrid.classList.add('hidden');
+                statusSection.classList.add('hidden');
+                return false;
+            }
+
+            notice.classList.add('hidden');
+            statsGrid.classList.remove('hidden');
+            statusSection.classList.remove('hidden');
+            return true;
+        }
+
         async function fetchParkingStatus() {
             try {
                 const response = await fetch('/api/parking/status');
                 const data = await response.json();
-                
+
+                const isCalibrated = updateCalibrationVisibility(Boolean(data.is_calibrated));
+
+                if (!isCalibrated) {
+                    document.getElementById('availableSpaces').textContent = '--';
+                    document.getElementById('occupiedSpaces').textContent = '--';
+                    document.getElementById('totalSpaces').textContent = '--';
+                    document.getElementById('occupancyRate').textContent = '--%';
+                    document.getElementById('lastUpdated').textContent = 'Pending calibration';
+                    document.getElementById('statusIndicator').className = 'indicator-dot yellow';
+                    document.getElementById('statusText').textContent = 'Awaiting calibration by an admin';
+                    return;
+                }
+
                 // Update stats
                 document.getElementById('availableSpaces').textContent = data.available_spaces;
                 document.getElementById('occupiedSpaces').textContent = data.occupied_spaces;

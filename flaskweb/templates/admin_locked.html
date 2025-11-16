@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Access Required - Parking Detection System</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <h1>🚗 Parking Detection System</h1>
+            <div class="nav-links">
+                <a href="/">Dashboard</a>
+                <a href="/live">Live View</a>
+                <a href="/analytics">Analytics</a>
+                <a href="/admin" class="active">Admin</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container">
+        <div class="content-section">
+            <h2>Admin Access Required</h2>
+            <p style="color: var(--text-secondary); margin-bottom: 1rem;">
+                Admin calibration tools are protected so only authorized staff can edit parking layouts.
+            </p>
+            {% if admin_enabled %}
+            <form method="POST" action="/admin/unlock" style="display: flex; gap: 1rem; flex-wrap: wrap;">
+                <input type="password" name="code" placeholder="Enter admin access code" required
+                       style="flex: 1; min-width: 220px; padding: 0.75rem; border-radius: 8px; border: 1px solid var(--border-color);">
+                <button type="submit" class="btn btn-primary" style="padding: 0.75rem 1.5rem;">Unlock Admin Tools</button>
+            </form>
+            {% if error_message %}
+            <p style="color: var(--danger-color); margin-top: 1rem;">{{ error_message }}</p>
+            {% endif %}
+            {% else %}
+            <p style="color: var(--warning-color); font-weight: 500;">
+                No admin access code is configured. Set the <code>ADMIN_ACCESS_CODE</code> environment variable
+                to require a passcode for this page.
+            </p>
+            {% endif %}
+        </div>
+    </div>
+</body>
+</html>

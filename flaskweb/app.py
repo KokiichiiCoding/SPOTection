@@ -1,4 +1,4 @@
-from flask import Flask, render_template, jsonify, request, send_from_directory
+from flask import Flask, render_template, jsonify, request, send_from_directory, redirect, make_response
 from flask_cors import CORS
 import os
 import json
@@ -56,6 +56,8 @@ CAMERA_URL = os.getenv(
 
 CAMERA_TIMEOUT = int(os.getenv('CAMERA_TIMEOUT', '10'))  # seconds
 CAMERA_MAX_RETRIES = int(os.getenv('CAMERA_MAX_RETRIES', '3'))
+CAMERA_ORIENTATION = os.getenv('CAMERA_ORIENTATION', 'auto')
+ADMIN_ACCESS_CODE = os.getenv('ADMIN_ACCESS_CODE')
 
 # Validate camera source
 VALID_SOURCES = ['placeholder', 'webcam', 'http_mjpeg', 'http_snapshot', 'rtsp', 'hls', 'webpage']
@@ -72,13 +74,19 @@ if CAMERA_SOURCE in ['http_mjpeg', 'http_snapshot', 'rtsp', 'hls', 'webpage'] an
 
 # Initialize camera feed with enhanced configuration
 logger.info(f"Initializing camera: source={CAMERA_SOURCE}, timeout={CAMERA_TIMEOUT}s, retries={CAMERA_MAX_RETRIES}")
+camera_options = {
+    'timeout': CAMERA_TIMEOUT,
+    'max_retries': CAMERA_MAX_RETRIES,
+    'orientation': CAMERA_ORIENTATION
+}
+
 if CAMERA_URL:
     # Mask sensitive parts of URL in logs
     display_url = CAMERA_URL[:50] + '...' if len(CAMERA_URL) > 50 else CAMERA_URL
     logger.info(f"Camera URL: {display_url}")
-    camera = create_camera_feed(CAMERA_SOURCE, CAMERA_URL)
+    camera = create_camera_feed(CAMERA_SOURCE, CAMERA_URL, **camera_options)
 else:
-    camera = create_camera_feed(CAMERA_SOURCE)
+    camera = create_camera_feed(CAMERA_SOURCE, **camera_options)
 
 # Log camera initialization status
 camera_info = camera.get_info()
@@ -95,41 +103,83 @@ elif camera_info.get('health') == 'healthy':
 # Mock data for alpha testing (replace with actual ML model integration)
 parking_data = {
     'lot_id': 'LOT-001',
-    'total_spaces': 50,
-    'available_spaces': 23,
-    'occupied_spaces': 27,
+    'total_spaces': 0,
+    'available_spaces': 0,
+    'occupied_spaces': 0,
     'last_updated': datetime.now().isoformat(),
-    'spaces': []
+    'spaces': [],
+    'is_calibrated': False,
+    'calibrated_at': None
 }
 
 # Load calibration data if exists
 def load_calibration():
-    """Load calibration data from file"""
+    """Load calibration data and metadata from file"""
     config_file = 'config.json'
     if os.path.exists(config_file):
         try:
             with open(config_file, 'r') as f:
                 config = json.load(f)
-                if 'calibration_data' in config:
-                    return config['calibration_data']
+                return config.get('calibration_data', []), config.get('calibration_timestamp')
         except Exception as e:
             print(f"Error loading calibration: {e}")
-    return []
+    return [], None
+
+
+def apply_calibration(calibration_spaces, calibrated_at=None):
+    """Update in-memory parking data using calibration info"""
+    global parking_data
+
+    total_spaces = len(calibration_spaces)
+    available_count = sum(1 for space in calibration_spaces if space.get('status', 'available') != 'occupied')
+    available_count = min(available_count, total_spaces)
+
+    parking_data['spaces'] = calibration_spaces
+    parking_data['total_spaces'] = total_spaces
+    parking_data['available_spaces'] = available_count
+    parking_data['occupied_spaces'] = max(0, total_spaces - available_count)
+    parking_data['is_calibrated'] = total_spaces > 0
+    parking_data['calibrated_at'] = calibrated_at
+    parking_data['last_updated'] = datetime.now().isoformat()
+
+
+def has_admin_access():
+    """Check whether the current request is authorized for admin actions"""
+    if not ADMIN_ACCESS_CODE:
+        return True
+
+    provided = (
+        request.cookies.get('admin_code')
+        or request.headers.get('X-Admin-Code')
+        or request.args.get('admin_code')
+    )
+    return provided == ADMIN_ACCESS_CODE
+
+
+def admin_lock_screen(error_message=None):
+    """Render the admin lock screen"""
+    status_code = 403 if ADMIN_ACCESS_CODE else 200
+    return (
+        render_template(
+            'admin_locked.html',
+            admin_enabled=bool(ADMIN_ACCESS_CODE),
+            error_message=error_message
+        ),
+        status_code
+    )
+
 
 # Initialize parking spaces from calibration or create empty list
-calibration_data = load_calibration()
+calibration_data, calibration_timestamp = load_calibration()
 if calibration_data:
-    parking_data['spaces'] = calibration_data
-    parking_data['total_spaces'] = len(calibration_data)
+    apply_calibration(calibration_data, calibration_timestamp)
     print(f"✅ Loaded {len(calibration_data)} calibrated parking spaces")
 else:
-    # Initialize mock parking spaces without polygons
-    for i in range(50):
-        parking_data['spaces'].append({
-            'id': f'SPACE-{i+1:03d}',
-            'status': 'available' if i < 23 else 'occupied',
-            'polygon': []  # Empty - will be filled by calibration
-        })
+    parking_data['spaces'] = []
+    parking_data['total_spaces'] = 0
+    parking_data['available_spaces'] = 0
+    parking_data['occupied_spaces'] = 0
+    parking_data['is_calibrated'] = False
     print("⚠️ No calibration data found. Please calibrate spaces in /admin")
 
 # Background thread to simulate real-time updates
@@ -137,11 +187,15 @@ def update_parking_data():
     """Simulate periodic updates from ML model"""
     while True:
         time.sleep(5)  # Update every 5 seconds
+        if not parking_data.get('is_calibrated') or parking_data['total_spaces'] == 0:
+            continue
+
         # TODO: Replace with actual ML model detection
         import random
-        available = random.randint(15, 35)
+        total_spaces = parking_data['total_spaces']
+        available = random.randint(0, total_spaces)
         parking_data['available_spaces'] = available
-        parking_data['occupied_spaces'] = 50 - available
+        parking_data['occupied_spaces'] = total_spaces - available
         parking_data['last_updated'] = datetime.now().isoformat()
 
 # Start background thread
@@ -172,7 +226,24 @@ def analytics():
 @app.route('/admin')
 def admin():
     """Admin panel - UC-002: Calibrate, UC-005: Configure"""
+    if not has_admin_access():
+        return admin_lock_screen()
     return render_template('admin.html')
+
+
+@app.route('/admin/unlock', methods=['POST'])
+def admin_unlock():
+    """Simple passcode gate for admin access"""
+    if not ADMIN_ACCESS_CODE:
+        return redirect('/admin')
+
+    code = request.form.get('code', '')
+    if code == ADMIN_ACCESS_CODE:
+        response = make_response(redirect('/admin'))
+        response.set_cookie('admin_code', code, max_age=3600, httponly=True, samesite='Lax')
+        return response
+
+    return admin_lock_screen('Invalid access code')
 
 # API Endpoints
 @app.route('/api/parking/status', methods=['GET'])
@@ -222,8 +293,10 @@ def config():
             'model_version': 'v1.0',
             'calibration_data': []
         })
-    
+
     elif request.method == 'POST':
+        if not has_admin_access():
+            return jsonify({'error': 'Admin access required'}), 403
         data = request.json
         
         # If calibration data is being saved, update parking_data
@@ -232,21 +305,11 @@ def config():
             calibration_spaces = data['calibration_data']
             
             # Update parking data with calibrated spaces
-            parking_data['spaces'] = calibration_spaces
-            parking_data['total_spaces'] = len(calibration_spaces)
-            
-            # Randomly assign status for demo (in production, this comes from ML detection)
-            import random
-            available_count = 0
-            for space in parking_data['spaces']:
-                if 'status' not in space:
-                    space['status'] = 'available' if random.random() > 0.5 else 'occupied'
-                if space['status'] == 'available':
-                    available_count += 1
-            
-            parking_data['available_spaces'] = available_count
-            parking_data['occupied_spaces'] = len(calibration_spaces) - available_count
-            
+            timestamp = data.get('timestamp', datetime.now().isoformat())
+            for space in calibration_spaces:
+                space.setdefault('status', 'available')
+
+            apply_calibration(calibration_spaces, timestamp)
             print(f"✅ Saved {len(calibration_spaces)} calibrated parking spaces")
         
         # Save to file
@@ -260,6 +323,8 @@ def config():
         
         # Merge with existing config
         existing_config.update(data)
+        if 'calibration_data' in data:
+            existing_config['calibration_timestamp'] = timestamp
         
         with open(config_file, 'w') as f:
             json.dump(existing_config, f, indent=2)

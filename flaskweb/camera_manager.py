@@ -46,7 +46,7 @@ except ImportError:
 class SimpleCameraFeed:
     """Enhanced camera feed with improved error handling and retry logic"""
 
-    def __init__(self, source_type='placeholder', source_url=None, timeout=10, max_retries=3):
+    def __init__(self, source_type='placeholder', source_url=None, timeout=10, max_retries=3, orientation='auto'):
         self.source_type = source_type
         self.source_url = source_url
         self.current_frame = None
@@ -59,8 +59,13 @@ class SimpleCameraFeed:
         self.error_count = 0
         self.last_error = None
         self.successful_frames = 0
+        self.orientation = orientation or 'auto'
+        self._resolved_orientation = 'none'
 
         logger.info(f"Initializing camera: type={source_type}, url={source_url}")
+
+        # Determine orientation preference before starting streams
+        self._update_orientation_from_source()
 
         # Auto-extract stream from webpage if source_type is 'webpage'
         if source_type == 'webpage' and source_url:
@@ -84,7 +89,71 @@ class SimpleCameraFeed:
             logger.warning(f"Unknown source type: {source_type}, using placeholder")
             self._create_placeholder()
             self.connection_status = 'placeholder'
-    
+
+    def _update_orientation_from_source(self):
+        """Refresh the resolved orientation based on settings and URL"""
+        new_orientation = self._determine_orientation()
+        self._resolved_orientation = new_orientation
+
+        if new_orientation not in ('none', 'normal', None):
+            logger.info(f"Applying '{new_orientation}' orientation to incoming frames")
+
+    def _determine_orientation(self):
+        """Infer the best orientation for this stream"""
+        if not self.orientation:
+            return 'none'
+
+        normalized = self.orientation.lower()
+        alias_map = {
+            'rotate-180': 'rotate180',
+            'rotate_180': 'rotate180',
+            '180': 'rotate180',
+            'flip-h': 'flip_horizontal',
+            'flip_h': 'flip_horizontal',
+            'flip-v': 'flip_vertical',
+            'flip_v': 'flip_vertical'
+        }
+        normalized = alias_map.get(normalized, normalized)
+
+        if normalized != 'auto':
+            return normalized
+
+        if self.source_url:
+            lowered_url = self.source_url.lower()
+            if 'taco-about-python.com' in lowered_url and 'video_feed' in lowered_url:
+                return 'rotate180'
+
+        return 'none'
+
+    def _apply_orientation(self, frame):
+        """Apply the resolved orientation transformation to a frame"""
+        if frame is None:
+            return frame
+
+        orientation = self._resolved_orientation
+        if orientation in ('none', 'normal', None):
+            return frame
+
+        try:
+            if CV2_AVAILABLE and isinstance(frame, np.ndarray):
+                if orientation == 'rotate180':
+                    return cv2.rotate(frame, cv2.ROTATE_180)
+                if orientation == 'flip_horizontal':
+                    return cv2.flip(frame, 1)
+                if orientation == 'flip_vertical':
+                    return cv2.flip(frame, 0)
+            elif PILLOW_AVAILABLE:
+                if orientation == 'rotate180':
+                    return frame.rotate(180)
+                if orientation == 'flip_horizontal':
+                    return frame.transpose(Image.FLIP_LEFT_RIGHT)
+                if orientation == 'flip_vertical':
+                    return frame.transpose(Image.FLIP_TOP_BOTTOM)
+        except Exception as exc:
+            logger.warning(f"Orientation transform failed: {exc}")
+
+        return frame
+
     def _create_placeholder(self):
         """Create a placeholder image"""
         if not PILLOW_AVAILABLE:
@@ -145,7 +214,7 @@ class SimpleCameraFeed:
         while self.is_running:
             try:
                 # For MJPEG streams
-                response = requests.get(self.source_url, stream=True, timeout=10)
+                response = requests.get(self.source_url, stream=True, timeout=self.timeout)
                 bytes_data = bytes()
                 
                 for chunk in response.iter_content(chunk_size=1024):
@@ -163,6 +232,7 @@ class SimpleCameraFeed:
                         frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
                         
                         if frame is not None:
+                            frame = self._apply_orientation(frame)
                             self.current_frame = frame
                             self.last_update = datetime.now()
                 
@@ -250,18 +320,21 @@ class SimpleCameraFeed:
                     # For YouTube, use the thumbnail as a snapshot
                     self.source_type = 'http_snapshot'
                     self.source_url = stream_url
+                    self._update_orientation_from_source()
                     self.connection_status = 'ready'
                     logger.info(f"Using YouTube thumbnail: {stream_url}")
 
                 elif stream_type == 'hls':
                     # HLS stream
                     self.source_url = stream_url
+                    self._update_orientation_from_source()
                     self._start_hls_stream()
 
                 elif stream_type == 'video':
                     # Direct video URL - try as snapshot first
                     self.source_url = stream_url
                     self.source_type = 'http_snapshot'
+                    self._update_orientation_from_source()
                     self.connection_status = 'ready'
 
                 else:
@@ -315,6 +388,7 @@ class SimpleCameraFeed:
                 if hasattr(self, 'cap') and self.cap.isOpened():
                     ret, frame = self.cap.read()
                     if ret:
+                        frame = self._apply_orientation(frame)
                         self.current_frame = frame
                         self.last_update = datetime.now()
                     else:
@@ -344,6 +418,7 @@ class SimpleCameraFeed:
                     frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
 
                     if frame is not None:
+                        frame = self._apply_orientation(frame)
                         self.connection_status = 'connected'
                         self.successful_frames += 1
                         self.error_count = 0
@@ -464,7 +539,8 @@ class SimpleCameraFeed:
             self.cap.release()
 
 
-def create_camera_feed(config_name='placeholder', custom_url=None):
+def create_camera_feed(config_name='placeholder', custom_url=None,
+                       timeout=10, max_retries=3, orientation='auto'):
     """
     Create a camera feed
     
@@ -480,19 +556,24 @@ def create_camera_feed(config_name='placeholder', custom_url=None):
     print(f"📹 Creating camera feed: {config_name}")
     
     if config_name == 'placeholder':
-        return SimpleCameraFeed('placeholder')
-    
+        return SimpleCameraFeed('placeholder', timeout=timeout, max_retries=max_retries,
+                                orientation=orientation)
+
     elif config_name == 'webcam':
-        return SimpleCameraFeed('webcam', '0')
-    
+        return SimpleCameraFeed('webcam', '0', timeout=timeout, max_retries=max_retries,
+                                orientation=orientation)
+
     elif config_name == 'http_mjpeg' and custom_url:
-        return SimpleCameraFeed('http_mjpeg', custom_url)
-    
+        return SimpleCameraFeed('http_mjpeg', custom_url, timeout=timeout,
+                                max_retries=max_retries, orientation=orientation)
+
     elif config_name == 'http_snapshot' and custom_url:
-        return SimpleCameraFeed('http_snapshot', custom_url)
-    
+        return SimpleCameraFeed('http_snapshot', custom_url, timeout=timeout,
+                                max_retries=max_retries, orientation=orientation)
+
     elif config_name == 'rtsp' and custom_url:
-        return SimpleCameraFeed('rtsp', custom_url)
+        return SimpleCameraFeed('rtsp', custom_url, timeout=timeout,
+                                max_retries=max_retries, orientation=orientation)
     
     else:
         print(f"⚠️ Unknown config or missing URL, using placeholder")
