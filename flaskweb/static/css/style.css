@@ -72,6 +72,27 @@ body {
     padding: 0 2rem;
 }
 
+.hidden {
+    display: none !important;
+}
+
+.notice-card {
+    border-radius: 12px;
+    padding: 1.5rem;
+    background: #fff7ed;
+    border: 1px solid rgba(234, 179, 8, 0.4);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.notice-card h3 {
+    margin-bottom: 0.5rem;
+    color: var(--warning-color);
+}
+
+.notice-card p {
+    color: var(--text-secondary);
+}
+
 /* Header */
 .header {
     margin-bottom: 2rem;

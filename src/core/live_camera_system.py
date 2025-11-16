@@ -18,6 +18,8 @@ import threading
 import time
 import logging
 
+from src.utils.image_enhancer import enhance_for_vehicle_detection
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -69,6 +71,18 @@ class LiveCameraDetector:
             "screenshot_interval": 120,  # Take screenshot every 2 minutes
             "output_dir": "output/live_feed/",
             "save_raw_screenshots": True,  # Save screenshots even without layout
+            "preprocessing": {
+                "apply_white_balance": True,
+                "apply_clahe": True,
+                "clahe_clip_limit": 2.5,
+                "clahe_tile_grid_size": [8, 8],
+                "apply_gamma": True,
+                "gamma": 1.1,
+                "smooth_noise": True,
+                "bilateral_filter_diameter": 5,
+                "bilateral_filter_sigma_color": 60,
+                "bilateral_filter_sigma_space": 60
+            }
         }
         
         if os.path.exists(config_path):
@@ -110,8 +124,10 @@ class LiveCameraDetector:
     
     def detect_vehicles(self, frame: np.ndarray) -> List[Dict]:
         """Detect vehicles in frame"""
+        processed_frame = enhance_for_vehicle_detection(frame, self.config.get("preprocessing"))
+
         results = self.model(
-            frame,
+            processed_frame,
             conf=self.config["confidence_threshold"],
             verbose=False
         )[0]
@@ -620,7 +636,19 @@ if __name__ == "__main__":
             "detection_interval": 1.0,  # Run detection every N seconds
             "save_snapshots": True,
             "snapshot_interval": 300,  # Save snapshot every 5 minutes
-            "output_dir": "output/live_feed/"
+            "output_dir": "output/live_feed/",
+            "preprocessing": {
+                "apply_white_balance": True,
+                "apply_clahe": True,
+                "clahe_clip_limit": 2.5,
+                "clahe_tile_grid_size": [8, 8],
+                "apply_gamma": True,
+                "gamma": 1.1,
+                "smooth_noise": True,
+                "bilateral_filter_diameter": 5,
+                "bilateral_filter_sigma_color": 60,
+                "bilateral_filter_sigma_space": 60
+            }
         }
         
         if os.path.exists(config_path):
@@ -662,8 +690,10 @@ if __name__ == "__main__":
     
     def detect_vehicles(self, frame: np.ndarray) -> List[Dict]:
         """Detect vehicles in frame"""
+        processed_frame = enhance_for_vehicle_detection(frame, self.config.get("preprocessing"))
+
         results = self.model(
-            frame,
+            processed_frame,
             conf=self.config["confidence_threshold"],
             verbose=False
         )[0]

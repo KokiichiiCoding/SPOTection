@@ -16,6 +16,8 @@ from datetime import datetime
 from typing import List, Dict, Optional
 import logging
 
+from src.utils.image_enhancer import enhance_for_vehicle_detection
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -39,14 +41,26 @@ class MultiImageDetectionSystem:
             "output_dir": "output/",
             "vehicle_classes": ["car", "truck", "bus", "van", "motorcycle", "bicycle"],
             "auto_generate_spots": True,
-            "save_debug_images": True
+            "save_debug_images": True,
+            "preprocessing": {
+                "apply_white_balance": True,
+                "apply_clahe": True,
+                "clahe_clip_limit": 2.5,
+                "clahe_tile_grid_size": [8, 8],
+                "apply_gamma": True,
+                "gamma": 1.1,
+                "smooth_noise": True,
+                "bilateral_filter_diameter": 5,
+                "bilateral_filter_sigma_color": 60,
+                "bilateral_filter_sigma_space": 60
+            }
         }
-        
+
         if os.path.exists(config_path):
             with open(config_path, 'r') as f:
                 user_config = json.load(f)
                 default_config.update(user_config)
-        
+
         return default_config
     
     def load_model(self):
@@ -121,8 +135,14 @@ class MultiImageDetectionSystem:
     def detect_vehicles(self, image_path: str) -> List[Dict]:
         """Detect vehicles in image"""
         
+        image = cv2.imread(image_path)
+        if image is None:
+            raise FileNotFoundError(f"Image not found: {image_path}")
+
+        processed = enhance_for_vehicle_detection(image, self.config.get("preprocessing"))
+
         results = self.model(
-            image_path, 
+            processed,
             conf=self.config["confidence_threshold"],
             verbose=False
         )[0]
