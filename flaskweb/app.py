@@ -628,11 +628,6 @@ def live():
     """Live view - Real-time detection feed for users"""
     return render_template('live.html')
 
-@app.route('/monitor')
-def monitor():
-    """Live monitoring - UC-003: Monitor Live Camera Feed"""
-    return render_template('monitor.html')
-
 @app.route('/analytics')
 def analytics():
     """Analytics dashboard - UC-004: Generate Analytics Report"""
