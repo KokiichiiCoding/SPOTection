@@ -3,8 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
     <title>Calibration Tool - Parking Detection System</title>
-    <link rel="stylesheet" href="/static/css/style.css">
+    <link rel="stylesheet" href="/static/css/style.css?v=2">
     <style>
         .calibration-workspace {
             position: relative;
@@ -138,6 +141,13 @@
         <div class="header">
             <h2>Parking Space Calibration Tool</h2>
             <p>Draw polygons directly on the live camera feed to define parking spaces</p>
+            <div style="display: flex; align-items: center; gap: 1rem; margin-top: 1rem; padding: 1rem; background: var(--background); border-radius: 8px;">
+                <label for="lotSelector" style="font-weight: 500;">Calibrating Lot:</label>
+                <select id="lotSelector" style="padding: 0.5rem; border-radius: 4px; border: 1px solid #ddd; font-size: 1rem;">
+                    <option value="">Loading lots...</option>
+                </select>
+                <button onclick="loadLotCalibration()" class="btn btn-secondary" style="font-size: 0.9rem;">📥 Load Calibration</button>
+            </div>
         </div>
 
         <div class="instructions">
@@ -206,9 +216,29 @@
                     </div>
                 </div>
 
+                <!-- Calibration Status Section -->
+                <div class="content-section" style="margin-top: 2rem;">
+                    <h3>Calibration Status for <span id="statusLotName">LOT-001</span></h3>
+                    
+                    <!-- Calibration Status Indicator -->
+                    <div id="calibrationStatusBox" style="padding: 1rem; margin-bottom: 1rem; border-radius: 4px; display: block;">
+                        <div style="display: flex; align-items: center; gap: 0.5rem;">
+                            <span id="calibrationStatusIcon" style="font-size: 1.5rem;">⏳</span>
+                            <div>
+                                <strong id="calibrationStatusText">Checking...</strong>
+                                <div id="calibrationStatusDetail" style="font-size: 0.9rem; margin-top: 0.25rem;">Checking sync status...</div>
+                            </div>
+                        </div>
+                        <button onclick="checkCalibrationStatus()" class="btn btn-secondary" style="margin-top: 0.5rem; font-size: 0.9rem;">
+                            🔄 Check Sync Status
+                        </button>
+                    </div>
+                </div>
+
                 <!-- Configuration Section -->
                 <div class="content-section" style="margin-top: 2rem;">
                     <h3>System Configuration</h3>
+                    
                     <form id="configForm">
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                             <div class="form-group">
@@ -230,6 +260,62 @@
                         </div>
                     </form>
                     <div id="configMessage" style="margin-top: 1rem;"></div>
+                </div>
+
+                <!-- Camera Configuration Section -->
+                <div class="content-section" style="margin-top: 2rem;">
+                    <h3>Camera Configuration for <span id="cameraConfigLotName">Selected Lot</span></h3>
+                    <form id="cameraConfigForm">
+                        <div class="form-group">
+                            <label for="cameraUrl">Camera Source URL</label>
+                            <input type="text" id="cameraUrl" name="cameraUrl" placeholder="http://..., rtsp://..., or insecam.org page" required>
+                            <small style="color: var(--text-secondary); display: block; margin-top: 0.25rem;">
+                                Supports: Direct streams, RTSP, video files, or camera website pages (e.g., insecam.org)
+                            </small>
+                        </div>
+                        <div class="form-group">
+                            <label for="cameraSource">Camera Type (optional, will auto-detect)</label>
+                            <select id="cameraSource" name="cameraSource">
+                                <option value="">Auto-detect</option>
+                                <option value="webcam">Webcam</option>
+                                <option value="http_mjpeg">MJPEG Stream</option>
+                                <option value="http_snapshot">Snapshot URL</option>
+                                <option value="website_embed">Website Embed (insecam.org, etc.)</option>
+                                <option value="rtsp">RTSP Stream</option>
+                                <option value="video_file">Video File</option>
+                            </select>
+                        </div>
+                        <div class="button-group">
+                            <button type="submit" class="btn btn-primary">Set Camera</button>
+                        </div>
+                    </form>
+                    <div id="cameraConfigMessage" style="margin-top: 1rem;"></div>
+                </div>
+
+                <!-- Parking Lot Management Section -->
+                <div class="content-section" style="margin-top: 2rem;">
+                    <h3>Parking Lot Management</h3>
+                    <div style="margin-bottom: 1rem;">
+                        <label for="lotManagementSelector">Current Lot:</label>
+                        <select id="lotManagementSelector" style="padding: 0.5rem; border-radius: 4px; border: 1px solid #ddd; width: 100%; margin-top: 0.5rem;">
+                            <option value="">Loading lots...</option>
+                        </select>
+                    </div>
+                    <form id="newLotForm" style="margin-top: 1rem; padding: 1rem; background: #f8f9fa; border-radius: 4px;">
+                        <h4 style="margin-bottom: 0.5rem;">Create New Lot</h4>
+                        <div class="form-group">
+                            <label for="newLotId">Lot ID</label>
+                            <input type="text" id="newLotId" placeholder="LOT-002" required>
+                        </div>
+                        <div class="form-group">
+                            <label for="newLotName">Lot Name</label>
+                            <input type="text" id="newLotName" placeholder="Main Parking Area" required>
+                        </div>
+                        <div class="button-group">
+                            <button type="submit" class="btn btn-primary">Create Lot</button>
+                        </div>
+                    </form>
+                    <div id="lotManagementMessage" style="margin-top: 1rem;"></div>
                 </div>
             </div>
 
@@ -273,26 +359,124 @@
         let showGrid = false;
         let editingSpaceId = null;
         let feedUpdateInterval;
+        let currentLotId = 'LOT-001'; // Default lot
 
         // Initialize
-        window.onload = function() {
-            videoFeed = document.getElementById('videoFeed');
-            canvas = document.getElementById('calibrationCanvas');
-            ctx = canvas.getContext('2d');
-            
-            // Load camera feed first
-            loadCameraFeed();
+        window.onload = async function() {
+            try {
+                videoFeed = document.getElementById('videoFeed');
+                canvas = document.getElementById('calibrationCanvas');
+                ctx = canvas.getContext('2d');
+                
+                // Load available lots first
+                try {
+                    await loadAvailableLots();
+                } catch (err) {
+                    console.error('Failed to load lots:', err);
+                }
+                
+                // Load camera feed after elements are ready
+                await loadCameraFeed();
             
             // Auto-refresh feed every 5 seconds
             feedUpdateInterval = setInterval(refreshFeed, 5000);
             
-            // Load config
+            // Load config for selected lot
             loadConfig();
+            
+            // Check calibration status
+            checkCalibrationStatus();
+            
+            // Load camera configuration for selected lot
+            loadCameraConfig();
+            } catch (err) {
+                console.error('Error during page initialization:', err);
+            }
         };
+
+        async function loadAvailableLots() {
+            try {
+                const response = await fetch('/api/lots');
+                const data = await response.json();
+                const selector = document.getElementById('lotSelector');
+                
+                if (data.lots && data.lots.length > 0) {
+                    selector.innerHTML = data.lots.map(lot => 
+                        `<option value="${lot.public_id}" ${lot.public_id === currentLotId ? 'selected' : ''}>${lot.name} (${lot.public_id})</option>`
+                    ).join('');
+                    
+                    // Set current lot from selector value
+                    currentLotId = selector.value;
+                    
+                    // Listen for lot changes
+                    const handleLotChange = (e) => {
+                        currentLotId = e.target.value;
+                        loadLotCalibration();
+                        checkCalibrationStatus();
+                        loadCameraConfig();
+                        loadCameraFeed();
+                    };
+                    
+                    // Remove old listener if it exists and add new one
+                    selector.removeEventListener('change', handleLotChange);
+                    selector.addEventListener('change', handleLotChange);
+                } else {
+                    selector.innerHTML = '<option value="LOT-001">Default Lot (LOT-001)</option>';
+                    currentLotId = 'LOT-001';
+                }
+            } catch (error) {
+                console.error('Error loading lots:', error);
+                document.getElementById('lotSelector').innerHTML = '<option value="LOT-001">Default Lot (LOT-001)</option>';
+                currentLotId = 'LOT-001';
+            }
+        }
+
+        async function loadLotCalibration() {
+            try {
+                const response = await fetch(`/api/lot/${currentLotId}/calibration`);
+                const data = await response.json();
+                
+                if (data.calibration_data && data.calibration_data.length > 0) {
+                    // Clear current spaces
+                    savedSpaces = [];
+                    
+                    // Load calibration for this lot
+                    data.calibration_data.forEach(space => {
+                        savedSpaces.push({
+                            id: space.id,
+                            polygon: space.polygon,
+                            color: space.color || '#10b981'
+                        });
+                    });
+                    
+                    updateSpaceList();
+                    drawAll();
+                    alert(`Loaded ${savedSpaces.length} existing spaces for ${currentLotId}`);
+                } else {
+                    savedSpaces = [];
+                    updateSpaceList();
+                    drawAll();
+                }
+            } catch (error) {
+                console.error('Error loading lot calibration:', error);
+                alert('Error loading calibration for this lot');
+            }
+        }
 
         async function loadCameraFeed() {
             try {
-                const response = await fetch('/api/camera/feed');
+                const lotId = document.getElementById('lotSelector').value;
+                if (!lotId) {
+                    console.warn('No lot selected, cannot load camera feed');
+                    createPlaceholder();
+                    return;
+                }
+                
+                // Add timestamp to prevent caching
+                const timestamp = new Date().getTime();
+                const response = await fetch(`/api/camera/feed?lot_id=${lotId}&t=${timestamp}`, {
+                    cache: 'no-store'
+                });
                 const data = await response.json();
                 
                 console.log('Admin camera feed loaded:', data); // Debug log
@@ -305,8 +489,12 @@
                         drawAll();
                     };
                     
-                    // Handle both base64 and regular URLs
-                    videoFeed.src = data.image_url;
+                    // Handle both base64 and regular URLs, add timestamp to prevent caching
+                    if (data.image_url.startsWith('data:')) {
+                        videoFeed.src = data.image_url;
+                    } else {
+                        videoFeed.src = data.image_url + `?t=${timestamp}`;
+                    }
                 } else {
                     console.error('No image_url in response');
                     createPlaceholder();
@@ -404,7 +592,8 @@
             
             savedSpaces.push(newSpace);
             currentPolygon = [];
-            isDrawing = false;
+            // Keep isDrawing = true to automatically start next space
+            isDrawing = true;
             
             console.log('Space saved with normalized coordinates:', newSpace);
             
@@ -633,9 +822,7 @@
                     status: 'available'  // Default status, will be updated by detection
                 }));
                 
-                console.log('Saving calibration data:', calibrationData);
-                
-                const response = await fetch('/api/config', {
+                const response = await fetch(`/api/lot/${currentLotId}/calibration`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({
@@ -648,14 +835,74 @@
                 const result = await response.json();
                 
                 if (result.success) {
-                    alert(`✅ Successfully saved ${savedSpaces.length} parking spaces!\n\nThe layout has been updated. Go to the Live View page to see your calibrated spaces.`);
+                    // Check calibration sync status for this lot
+                    const statusResponse = await fetch(`/api/lot/${currentLotId}/calibration/status`);
+                    const statusData = await statusResponse.json();
+                    
+                    let message = `✅ Successfully saved ${savedSpaces.length} parking spaces to ${currentLotId}!`;
+                    
+                    if (statusData.synced) {
+                        message += `\\n\\n✓ Database synced: ${statusData.db_spots} spots created in lot '${statusData.lot_id}'`;
+                        message += `\\n\\nThe system is now ready for detection!`;
+                    } else {
+                        message += `\\n\\n⚠ Warning: Database sync incomplete`;
+                        message += `\\n- Config: ${statusData.config_spots} spots`;
+                        message += `\\n- Database: ${statusData.db_spots} spots`;
+                    }
+                    
+                    message += `\\n\\nGo to the Live View page to see your calibrated spaces.`;
+                    
+                    alert(message);
                     console.log('Save result:', result);
+                    console.log('Sync status:', statusData);
+                    
+                    // Update calibration status display
+                    await checkCalibrationStatus();
                 } else {
                     alert('❌ Error saving calibration data.');
                 }
             } catch (error) {
                 alert('❌ Error: ' + error.message);
                 console.error('Save error:', error);
+            }
+        }
+        
+        async function checkCalibrationStatus() {
+            try {
+                // Update lot name display
+                document.getElementById('statusLotName').textContent = currentLotId;
+                
+                const response = await fetch(`/api/lot/${currentLotId}/calibration/status`);
+                const data = await response.json();
+                
+                const statusBox = document.getElementById('calibrationStatusBox');
+                const statusIcon = document.getElementById('calibrationStatusIcon');
+                const statusText = document.getElementById('calibrationStatusText');
+                const statusDetail = document.getElementById('calibrationStatusDetail');
+                
+                statusBox.style.display = 'block';
+                
+                if (data.synced) {
+                    statusBox.style.backgroundColor = '#d1fae5';
+                    statusBox.style.border = '1px solid #10b981';
+                    statusIcon.textContent = '✅';
+                    statusText.textContent = 'Calibration Synced';
+                    statusDetail.textContent = `${data.db_spots} spots in database (Lot: ${data.lot_id})`;
+                } else if (!data.lot_exists) {
+                    statusBox.style.backgroundColor = '#fee2e2';
+                    statusBox.style.border = '1px solid #ef4444';
+                    statusIcon.textContent = '❌';
+                    statusText.textContent = 'Lot Not Found';
+                    statusDetail.textContent = `Lot '${data.lot_id}' doesn't exist. Create it in the Lot Management section below.`;
+                } else {
+                    statusBox.style.backgroundColor = '#fef3c7';
+                    statusBox.style.border = '1px solid #f59e0b';
+                    statusIcon.textContent = '⚠️';
+                    statusText.textContent = 'Out of Sync';
+                    statusDetail.textContent = `Config: ${data.config_spots} spots, Database: ${data.db_spots} spots. Save calibration again to sync.`;
+                }
+            } catch (error) {
+                console.error('Error checking calibration status:', error);
             }
         }
 
@@ -747,8 +994,8 @@
                 const response = await fetch('/api/config');
                 const config = await response.json();
                 
-                document.getElementById('detectionThreshold').value = config.detection_threshold;
-                document.getElementById('updateInterval').value = config.update_interval;
+                document.getElementById('detectionThreshold').value = config.detection_threshold || 0.5;
+                document.getElementById('updateInterval').value = config.update_interval || 5;
             } catch (error) {
                 console.error('Error loading config:', error);
             }
@@ -781,6 +1028,111 @@
                     '<p style="color: var(--danger-color);">✗ Error saving configuration</p>';
             }
         });
+
+        // Camera Configuration
+        async function loadCameraConfig() {
+            const lotId = document.getElementById('lotSelector').value;
+            if (!lotId) return;
+
+            try {
+                const response = await fetch(`/api/lot/${lotId}/camera`);
+                const data = await response.json();
+
+                if (response.ok && data.camera_url) {
+                    document.getElementById('cameraUrl').value = data.camera_url || '';
+                    document.getElementById('cameraSource').value = data.camera_type || '';
+                } else {
+                    // Clear form if no camera configured
+                    document.getElementById('cameraUrl').value = '';
+                    document.getElementById('cameraSource').value = '';
+                }
+
+                // Update the lot name in the section header
+                const lotSelector = document.getElementById('lotSelector');
+                const selectedOption = lotSelector.options[lotSelector.selectedIndex];
+                document.getElementById('cameraConfigLotName').textContent = selectedOption ? selectedOption.text : 'Selected Lot';
+            } catch (error) {
+                console.error('Error loading camera config:', error);
+            }
+        }
+
+        document.getElementById('cameraConfigForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const lotId = document.getElementById('lotSelector').value;
+            if (!lotId) {
+                document.getElementById('cameraConfigMessage').innerHTML = '<p style="color: var(--danger-color);">✗ Please select a lot first</p>';
+                return;
+            }
+
+            const cameraUrl = document.getElementById('cameraUrl').value;
+            const cameraSource = document.getElementById('cameraSource').value;
+            const messageDiv = document.getElementById('cameraConfigMessage');
+
+            messageDiv.innerHTML = '<p style="color: var(--primary-color);">Updating camera...</p>';
+
+            try {
+                const response = await fetch(`/api/lot/${lotId}/camera`, {
+                    method: 'PUT',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ camera_url: cameraUrl, camera_type: cameraSource || null })
+                });
+
+                const result = await response.json();
+
+                if (response.ok) {
+                    messageDiv.innerHTML = `<p style="color: var(--success-color);">✓ Camera configured successfully for this lot</p>`;
+                    // Force camera refresh with delay
+                    setTimeout(() => {
+                        loadCameraFeed();
+                    }, 1000);
+                } else {
+                    messageDiv.innerHTML = `<p style="color: var(--danger-color);">✗ Error: ${result.error || 'Failed to update camera'}</p>`;
+                }
+            } catch (error) {
+                messageDiv.innerHTML = `<p style="color: var(--danger-color);">✗ Network error: ${error.message}</p>`;
+            }
+        });
+
+        // Parking Lot Management
+        // Lot management form handlers below
+        
+        document.getElementById('newLotForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const lotId = document.getElementById('newLotId').value;
+            const lotName = document.getElementById('newLotName').value;
+            const messageDiv = document.getElementById('lotManagementMessage');
+
+            messageDiv.innerHTML = '<p style="color: var(--primary-color);">Creating lot...</p>';
+
+            try {
+                const response = await fetch('/api/lots', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ lot_id: lotId, name: lotName })
+                });
+
+                const result = await response.json();
+
+                if (result.success) {
+                    messageDiv.innerHTML = `<p style="color: var(--success-color);">✓ Lot ${lotId} created successfully!</p>`;
+                    document.getElementById('newLotId').value = '';
+                    document.getElementById('newLotName').value = '';
+                    loadAvailableLots();
+                } else {
+                    messageDiv.innerHTML = `<p style="color: var(--danger-color);">✗ Error: ${result.error}</p>`;
+                }
+            } catch (error) {
+                messageDiv.innerHTML = `<p style="color: var(--danger-color);">✗ Network error: ${error.message}</p>`;
+            }
+        });
+
+        // Load lots on page load
+        loadAvailableLots();
+        
+        // Check calibration status on page load
+        checkCalibrationStatus();
 
         // Cleanup on page unload
         window.addEventListener('beforeunload', () => {

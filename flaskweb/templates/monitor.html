@@ -139,7 +139,8 @@
 
         async function loadCameraFeed() {
             try {
-                const response = await fetch('/api/camera/feed');
+                // Monitor page uses default lot (LOT-001)
+                const response = await fetch('/api/camera/feed?lot_id=LOT-001&t=' + Date.now());
                 const data = await response.json();
                 
                 console.log('Monitor camera feed:', data); // Debug log

@@ -23,6 +23,12 @@
     <div class="container">
         <div class="header">
             <h2>Real-Time Parking Availability</h2>
+            <div style="display: flex; align-items: center; gap: 1rem; margin-top: 0.5rem;">
+                <label for="lotSelector" style="font-weight: 500;">Select Parking Lot:</label>
+                <select id="lotSelector" style="padding: 0.5rem; border-radius: 4px; border: 1px solid #ddd; font-size: 1rem;">
+                    <option value="">Loading lots...</option>
+                </select>
+            </div>
             <p class="last-updated">Last updated: <span id="lastUpdated">--</span></p>
         </div>
 
@@ -80,23 +86,61 @@
 
     <script>
         let updateInterval;
+        let currentLotId = 'LOT-001'; // Default
+
+        async function loadAvailableLots() {
+            try {
+                const response = await fetch('/api/lots');
+                const data = await response.json();
+                const selector = document.getElementById('lotSelector');
+                
+                if (data.lots && data.lots.length > 0) {
+                    selector.innerHTML = data.lots.map(lot => 
+                        `<option value="${lot.public_id}" ${lot.public_id === currentLotId ? 'selected' : ''}>${lot.name} (${lot.public_id})</option>`
+                    ).join('');
+                    
+                    // Set default to first lot if current doesn't exist
+                    if (!data.lots.find(l => l.public_id === currentLotId)) {
+                        currentLotId = data.lots[0].public_id;
+                        selector.value = currentLotId;
+                    }
+                } else {
+                    selector.innerHTML = '<option value="">No lots available</option>';
+                }
+                
+                // Add change listener
+                selector.addEventListener('change', (e) => {
+                    currentLotId = e.target.value;
+                    fetchParkingStatus();
+                });
+                
+            } catch (error) {
+                console.error('Error loading lots:', error);
+                document.getElementById('lotSelector').innerHTML = '<option value="">Error loading lots</option>';
+            }
+        }
 
         async function fetchParkingStatus() {
+            if (!currentLotId) return;
+            
             try {
-                const response = await fetch('/api/parking/status');
+                const response = await fetch(`/api/lot/${currentLotId}/status`);
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
                 const data = await response.json();
                 
-                // Update stats
+                // Update stats - use available_spaces/occupied_spaces for consistency
                 document.getElementById('availableSpaces').textContent = data.available_spaces;
                 document.getElementById('occupiedSpaces').textContent = data.occupied_spaces;
                 document.getElementById('totalSpaces').textContent = data.total_spaces;
                 
                 // Calculate occupancy rate
-                const occupancyRate = ((data.occupied_spaces / data.total_spaces) * 100).toFixed(1);
+                const occupancyRate = data.total_spaces > 0 ? ((data.occupied_spaces / data.total_spaces) * 100).toFixed(1) : 0;
                 document.getElementById('occupancyRate').textContent = occupancyRate + '%';
                 
                 // Update last updated time
-                const lastUpdated = new Date(data.last_updated);
+                const lastUpdated = new Date(data.timestamp);
                 document.getElementById('lastUpdated').textContent = lastUpdated.toLocaleTimeString();
                 
                 // Update status indicator
@@ -106,17 +150,18 @@
                 if (data.available_spaces > 10) {
                     indicator.className = 'indicator-dot green';
                     statusText.textContent = 'Parking Available';
-                } else if (data.available_spaces > 5) {
+                } else if (data.available_spaces > 0) {
                     indicator.className = 'indicator-dot yellow';
                     statusText.textContent = 'Limited Availability';
                 } else {
                     indicator.className = 'indicator-dot red';
-                    statusText.textContent = 'Almost Full';
+                    statusText.textContent = 'Lot Full';
                 }
                 
             } catch (error) {
                 console.error('Error fetching parking status:', error);
                 document.getElementById('statusText').textContent = 'Connection Error';
+                document.getElementById('statusIndicator').className = 'indicator-dot red';
             }
         }
 
@@ -125,10 +170,13 @@
         }
 
         // Initial load
-        fetchParkingStatus();
-
-        // Auto-refresh every 5 seconds
-        updateInterval = setInterval(fetchParkingStatus, 5000);
+        document.addEventListener('DOMContentLoaded', () => {
+            loadAvailableLots().then(() => {
+                fetchParkingStatus();
+                // Auto-refresh every 10 seconds
+                updateInterval = setInterval(fetchParkingStatus, 10000);
+            });
+        });
 
         // Cleanup on page unload
         window.addEventListener('beforeunload', () => {

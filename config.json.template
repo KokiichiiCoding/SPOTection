@@ -1,0 +1,13 @@
+{
+    "model_path": "yolov8n.pt",
+    "confidence_threshold": 0.2,
+    "overlap_threshold": 0.3,
+    "database_uri": "postgresql://spotection_client:password123@localhost:5432/parking_db",
+    "default_lot_id": "LOT-001",
+    "output_dir": "output/",
+    "log_dir": "logs/",
+    "camera_url": null,
+    "camera_source": "placeholder",
+    "screenshot_interval": 120,
+    "save_raw_screenshots": true
+}
