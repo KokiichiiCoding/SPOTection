@@ -9,7 +9,86 @@ It performs the following actions:
 """
 
 import os
+import sys
 import json
+import subprocess
+
+def check_and_fix_environment():
+    """
+    Checks if required packages are available. If not, tries to use the correct interpreter.
+    Returns the correct Python executable to use.
+    """
+    try:
+        # Try importing Flask to check if we're in the right environment
+        import flask
+        return sys.executable  # Current interpreter works
+    except ImportError:
+        print("⚠️  Flask not found in current Python interpreter.")
+        print(f"   Current interpreter: {sys.executable}")
+        
+        # Try to find the correct Python executable
+        potential_pythons = []
+        
+        # Check for virtual environment
+        if os.path.exists('.venv'):
+            if os.name == 'nt':  # Windows
+                venv_python = os.path.join('.venv', 'Scripts', 'python.exe')
+            else:  # Unix-like
+                venv_python = os.path.join('.venv', 'bin', 'python')
+            
+            if os.path.exists(venv_python):
+                potential_pythons.append(venv_python)
+        
+        # Check for conda environment
+        conda_prefix = os.environ.get('CONDA_PREFIX')
+        if conda_prefix:
+            if os.name == 'nt':  # Windows
+                conda_python = os.path.join(conda_prefix, 'python.exe')
+            else:  # Unix-like
+                conda_python = os.path.join(conda_prefix, 'bin', 'python')
+            
+            if os.path.exists(conda_python) and conda_python != sys.executable:
+                potential_pythons.append(conda_python)
+        
+        # Try each potential Python
+        for python_path in potential_pythons:
+            try:
+                # Test if this Python has Flask installed
+                result = subprocess.run(
+                    [python_path, '-c', 'import flask; import sqlalchemy; print("OK")'],
+                    capture_output=True,
+                    text=True,
+                    timeout=5
+                )
+                if result.returncode == 0 and 'OK' in result.stdout:
+                    print(f"✅ Found working Python interpreter: {python_path}")
+                    return python_path
+            except (subprocess.TimeoutExpired, FileNotFoundError):
+                continue
+        
+        # If we get here, no working Python was found
+        print("\n❌ Could not find a Python interpreter with required packages installed.")
+        print("\n📦 Please ensure you have:")
+        print("   1. Activated your virtual environment or conda environment")
+        print("   2. Installed requirements: pip install -r requirements.txt")
+        print("\nThen run setup.py again.")
+        sys.exit(1)
+
+def restart_with_correct_interpreter(correct_python):
+    """Restart this script with the correct Python interpreter."""
+    if correct_python != sys.executable:
+        print(f"\n🔄 Restarting with correct interpreter: {correct_python}")
+        print("="*50 + "\n")
+        
+        # Re-run this script with the correct Python
+        result = subprocess.run([correct_python] + sys.argv)
+        sys.exit(result.returncode)
+
+# Check environment before importing Flask
+correct_python = check_and_fix_environment()
+restart_with_correct_interpreter(correct_python)
+
+# Now we can safely import Flask and other dependencies
 from flask import Flask
 from flaskweb.models import db, ParkingLot
 from sqlalchemy.exc import OperationalError
