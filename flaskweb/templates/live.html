@@ -557,6 +557,7 @@
                 
                 // Check if this spot is highlighted
                 const isHighlighted = highlightedSpotId === space.id;
+                const isSmall = space.is_small || false;
                 
                 // Determine color based on status and highlight
                 const isFree = space.status === 'free';
@@ -564,11 +565,20 @@
                 let fillColor = isFree ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)';
                 let lineWidth = 2;
                 
+                // Apply small spot styling (dashed border)
+                if (isSmall && !isHighlighted) {
+                    ctx.setLineDash([5, 3]); // Dashed line for small spots
+                    lineWidth = 1.5; // Slightly thinner
+                } else {
+                    ctx.setLineDash([]); // Solid line for normal spots
+                }
+                
                 // Apply highlight styling
                 if (isHighlighted) {
                     color = '#fbbf24'; // Yellow/gold for highlight
                     fillColor = 'rgba(251, 191, 36, 0.4)'; // Brighter, more opaque
                     lineWidth = 4; // Thicker border
+                    ctx.setLineDash([]); // Solid line when highlighted
                 }
                 
                 // Fill
@@ -604,6 +614,18 @@
                 
                 ctx.fillStyle = '#fff';
                 ctx.fillText(spotLabel, centerX, centerY);
+                
+                // Draw "S" badge for small spots in top-right corner
+                if (isSmall) {
+                    const topRight = polygon.reduce((max, p) => p.x > max.x ? p : max, polygon[0]);
+                    ctx.fillStyle = 'rgba(255, 165, 0, 0.8)'; // Orange background
+                    ctx.beginPath();
+                    ctx.arc(topRight.x - 8, topRight.y + 8, 7, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#fff';
+                    ctx.font = 'bold 9px Arial';
+                    ctx.fillText('S', topRight.x - 8, topRight.y + 8);
+                }
                 
                 // Draw vehicle info if occupied
                 if (!isFree && space.vehicle) {
@@ -651,12 +673,14 @@
             grid.innerHTML = filteredSpots.map(spot => {
                 const statusClass = spot.status === 'free' ? 'available' : 'occupied';
                 const statusLabel = spot.status === 'free' ? 'Available' : 'Occupied';
+                const smallBadge = spot.is_small ? '<span style="font-size: 9px; color: #ff9800;">⚬</span> ' : '';
+                const smallTitle = spot.is_small ? ' (Small/Distant Spot)' : '';
                 return `
                     <div class="space-cell ${statusClass}" 
-                         title="${spot.id} - ${statusLabel}"
+                         title="${spot.id} - ${statusLabel}${smallTitle}"
                          onmouseenter="highlightSpot('${spot.id}')"
                          onmouseleave="clearHighlight()">
-                        ${spot.id.replace('SPACE-', '')}
+                        ${smallBadge}${spot.id.replace('SPACE-', '')}
                     </div>
                 `;
             }).join('');
