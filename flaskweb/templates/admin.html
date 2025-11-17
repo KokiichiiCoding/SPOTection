@@ -130,7 +130,6 @@
             <div class="nav-links">
                 <a href="/">Dashboard</a>
                 <a href="/live">Live View</a>
-                <a href="/live">Live View</a>
                 <a href="/analytics">Analytics</a>
                 <a href="/admin" class="active">Admin</a>
             </div>
@@ -242,7 +241,35 @@
                     <form id="configForm">
                         <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
                             <div class="form-group">
-                                <label for="detectionThreshold">Detection Threshold</label>
+                                <label for="confidenceThreshold">Confidence Threshold</label>
+                                <input type="number" id="confidenceThreshold" name="confidenceThreshold" 
+                                       min="0" max="1" step="0.05" value="0.2" required>
+                                <small style="color: #666;">Min confidence for vehicle detection (0.0 - 1.0)</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="overlapThreshold">Overlap Threshold</label>
+                                <input type="number" id="overlapThreshold" name="overlapThreshold" 
+                                       min="0" max="1" step="0.05" value="0.25" required>
+                                <small style="color: #666;">Min overlap ratio for spot occupancy (0.0 - 1.0)</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="iouThreshold">IOU Threshold (NMS)</label>
+                                <input type="number" id="iouThreshold" name="iouThreshold" 
+                                       min="0" max="1" step="0.05" value="0.45" required>
+                                <small style="color: #666;">Non-Maximum Suppression threshold (0.0 - 1.0)</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="detectionImageSize">Detection Image Size</label>
+                                <input type="number" id="detectionImageSize" name="detectionImageSize" 
+                                       min="320" max="1280" step="64" value="640" required>
+                                <small style="color: #666;">YOLO input size in pixels (higher = more accurate but slower)</small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="detectionThreshold">Detection Threshold (Legacy)</label>
                                 <input type="number" id="detectionThreshold" name="detectionThreshold" 
                                        min="0" max="1" step="0.05" value="0.5" required>
                             </div>
@@ -374,6 +401,9 @@
                 } catch (err) {
                     console.error('Failed to load lots:', err);
                 }
+                
+                // Load configuration
+                await loadConfig();
                 
                 // Load camera feed after elements are ready
                 await loadCameraFeed();
@@ -994,6 +1024,10 @@
                 const response = await fetch('/api/config');
                 const config = await response.json();
                 
+                document.getElementById('confidenceThreshold').value = config.confidence_threshold || 0.2;
+                document.getElementById('overlapThreshold').value = config.overlap_threshold || 0.25;
+                document.getElementById('iouThreshold').value = config.iou_threshold || 0.45;
+                document.getElementById('detectionImageSize').value = config.detection_image_size || 640;
                 document.getElementById('detectionThreshold').value = config.detection_threshold || 0.5;
                 document.getElementById('updateInterval').value = config.update_interval || 5;
             } catch (error) {
@@ -1005,6 +1039,10 @@
             e.preventDefault();
             
             const config = {
+                confidence_threshold: parseFloat(document.getElementById('confidenceThreshold').value),
+                overlap_threshold: parseFloat(document.getElementById('overlapThreshold').value),
+                iou_threshold: parseFloat(document.getElementById('iouThreshold').value),
+                detection_image_size: parseInt(document.getElementById('detectionImageSize').value),
                 detection_threshold: parseFloat(document.getElementById('detectionThreshold').value),
                 update_interval: parseInt(document.getElementById('updateInterval').value)
             };
