@@ -173,13 +173,18 @@ def detect_vehicles_in_frame(frame):
             detection_frame = cv2.cvtColor(lab_enhanced, cv2.COLOR_LAB2BGR)
         
         # Run detection with optimized parameters
+        # Use a lower base confidence threshold to ensure we catch vehicles in small/distant spots
+        # We'll filter by higher confidence during spot analysis for normal-sized spots
         conf_threshold = main_config.get('confidence_threshold', 0.2)
+        small_spot_conf_threshold = conf_threshold * 0.7  # 70% of normal threshold for small spots
+        
+        # Use the lower threshold globally to catch all potential vehicles
         iou_threshold = main_config.get('iou_threshold', 0.45)  # NMS threshold
         img_size = main_config.get('detection_image_size', 640)  # Standard YOLO size
         
         results = detection_model(
             detection_frame,
-            conf=conf_threshold,
+            conf=small_spot_conf_threshold,  # Use lower threshold to catch vehicles in small spots
             iou=iou_threshold,
             imgsz=img_size,
             verbose=False,
@@ -252,17 +257,22 @@ def analyze_spots_with_detections(detections, calibration_data, frame_shape, lot
             # Adjust thresholds for small spots
             if is_small_spot:
                 # Use intersection/spot_area ratio instead of IoU for small spots
-                effective_threshold = overlap_threshold * 0.6  # Lower threshold for small spots
-                logger.debug(f"Spot {spot_id}: SMALL spot (area={spot_area:.2f} pixels²), using adjusted threshold={effective_threshold:.3f}")
+                # Lower threshold significantly for small/distant spots (40% of normal)
+                effective_threshold = overlap_threshold * 0.6
+                # Also lower confidence threshold for small spots (70% of normal)
+                min_confidence = main_config.get('confidence_threshold', 0.2) * 0.7
+                logger.debug(f"Spot {spot_id}: SMALL spot (area={spot_area:.2f} pixels²), using adjusted threshold={effective_threshold:.3f} (was {overlap_threshold:.3f}), min_conf={min_confidence:.2f}")
             else:
                 effective_threshold = overlap_threshold
-                logger.debug(f"Spot {spot_id}: polygon area = {spot_area:.2f} pixels²")
+                # Use normal confidence threshold for regular spots
+                min_confidence = main_config.get('confidence_threshold', 0.2)
+                logger.debug(f"Spot {spot_id}: polygon area = {spot_area:.2f} pixels², threshold={effective_threshold:.3f}, min_conf={min_confidence:.2f}")
             
             # Apply hysteresis: if currently occupied, use 80% of threshold to become free
             # This prevents flickering when vehicle slightly moves
             if currently_occupied:
                 free_threshold = effective_threshold * 0.8
-                logger.debug(f"Spot {spot_id}: Currently occupied, using lower free threshold={free_threshold:.3f}")
+                logger.debug(f"Spot {spot_id}: Currently occupied, using lower free threshold={free_threshold:.3f} (80% of {effective_threshold:.3f})")
             else:
                 free_threshold = effective_threshold
             
@@ -270,17 +280,21 @@ def analyze_spots_with_detections(detections, calibration_data, frame_shape, lot
             max_overlap = 0.0
             
             for detection in detections:
+                # Skip detections that don't meet the minimum confidence for this spot size
+                if detection['confidence'] < min_confidence:
+                    continue
+                    
                 intersection = spot_polygon.intersection(detection["box"])
                 if intersection.area > 0:
                     if is_small_spot:
                         # For small spots, use intersection/spot ratio (more sensitive)
                         overlap_ratio = intersection.area / spot_area
+                        logger.debug(f"  {spot_id} ↔ {detection['class']}: overlap={overlap_ratio:.3f} (intersection/spot method for small spot), conf={detection['confidence']:.2f}")
                     else:
                         # For normal spots, use IoU
                         union_area = spot_polygon.area + detection["box"].area - intersection.area
                         overlap_ratio = intersection.area / union_area if union_area > 0 else 0
-                    
-                    logger.debug(f"  {spot_id} ↔ {detection['class']}: overlap={overlap_ratio:.3f}, conf={detection['confidence']:.2f}")
+                        logger.debug(f"  {spot_id} ↔ {detection['class']}: overlap={overlap_ratio:.3f} (IoU method), conf={detection['confidence']:.2f}")
                     
                     if overlap_ratio > max_overlap:
                         max_overlap = overlap_ratio
@@ -1119,17 +1133,36 @@ def get_lot_detection_overlay(lot_id):
             # Merge calibration polygon data with database status
             calibration_map = {spot['id']: spot for spot in calibration_data}
             
+            # Get frame dimensions (assuming a standard resolution if not available)
+            # This is used to calculate spot area in pixels
+            frame_width = 1920  # Default, should match actual camera resolution
+            frame_height = 1080
+            
             for spot in lot.spots:
                 latest_status = StatusUpdate.query.filter_by(spot_id=spot.id).order_by(StatusUpdate.timestamp.desc()).first()
                 calibration = calibration_map.get(spot.spot_id, {})
                 
+                # Calculate if this is a small spot
+                is_small_spot = False
+                polygon_coords = calibration.get('polygon', [])
+                if polygon_coords and len(polygon_coords) >= 3:
+                    try:
+                        from shapely.geometry import Polygon
+                        pixel_coords = [(p['x'] * frame_width, p['y'] * frame_height) for p in polygon_coords]
+                        spot_polygon = Polygon(pixel_coords)
+                        spot_area = spot_polygon.area
+                        is_small_spot = spot_area < 5000
+                    except:
+                        pass
+                
                 spot_data = {
                     'id': spot.spot_id,
-                    'polygon': calibration.get('polygon', []),
+                    'polygon': polygon_coords,
                     'status': latest_status.status if latest_status else 'free',
                     'confidence': latest_status.confidence if latest_status else 0.0,
                     'vehicle': latest_status.vehicle_data if latest_status else None,
-                    'color': calibration.get('color', '#10b981')
+                    'color': calibration.get('color', '#10b981'),
+                    'is_small': is_small_spot  # Add flag for small spots
                 }
                 overlay_data['spots'].append(spot_data)
         
