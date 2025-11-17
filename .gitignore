@@ -44,6 +44,12 @@ camera_feeds/
 # Database
 parking_db_test
 
+# Configuration
+config.json
+config_*.json
+*_config.json
+test_config.json
+
 # OS
 .DS_Store
 Thumbs.db
