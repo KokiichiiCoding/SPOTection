@@ -144,7 +144,13 @@ def load_detection_model():
     try:
         model_path = main_config.get('model_path', 'yolov8n.pt')
         detection_model = YOLO(model_path)
+        
+        # Set model to evaluation mode for consistency
+        detection_model.model.eval()
+        
         logger.info(f"✓ Detection model loaded: {model_path}")
+        logger.info(f"  Available classes: {len(detection_model.names)} (including: car, truck, bus, motorcycle)")
+        logger.info(f"  Configuration: conf={main_config.get('confidence_threshold', 0.2)}, iou={main_config.get('iou_threshold', 0.45)}")
         return True
     except Exception as e:
         logger.error(f"Failed to load detection model: {e}")
@@ -166,9 +172,20 @@ def detect_vehicles_in_frame(frame):
             lab_enhanced = cv2.merge([l_enhanced, a, b])
             detection_frame = cv2.cvtColor(lab_enhanced, cv2.COLOR_LAB2BGR)
         
-        # Run detection
+        # Run detection with optimized parameters
         conf_threshold = main_config.get('confidence_threshold', 0.2)
-        results = detection_model(detection_frame, conf=conf_threshold, verbose=False)[0]
+        iou_threshold = main_config.get('iou_threshold', 0.45)  # NMS threshold
+        img_size = main_config.get('detection_image_size', 640)  # Standard YOLO size
+        
+        results = detection_model(
+            detection_frame,
+            conf=conf_threshold,
+            iou=iou_threshold,
+            imgsz=img_size,
+            verbose=False,
+            device='cpu',  # Explicitly use CPU for consistency
+            half=False     # Disable half-precision for accuracy
+        )[0]
         
         detections = []
         vehicle_classes = set(main_config.get('vehicle_classes', ['car', 'truck', 'bus', 'motorcycle', 'bicycle']))
@@ -426,7 +443,9 @@ def detection_loop():
     global detection_running
     logger.info("🔍 Detection loop started")
     
-    interval = main_config.get('detection_interval', 5)  # Detection every 5 seconds
+    # Use update_interval from config (configurable in admin panel)
+    interval = main_config.get('update_interval', 5)  # Default to 5 seconds
+    logger.info(f"Detection interval set to {interval} seconds")
     
     while detection_running:
         try:
@@ -507,6 +526,8 @@ def detection_loop():
         except Exception as e:
             logger.error(f"Detection loop error: {e}", exc_info=True)
         
+        # Re-read interval from config on each iteration (allows dynamic updates)
+        interval = main_config.get('update_interval', 5)
         time.sleep(interval)
     
     logger.info("🛑 Detection loop stopped")
@@ -831,6 +852,10 @@ def config():
     if request.method == 'GET':
         # Default config values
         default_config = {
+            'confidence_threshold': 0.2,
+            'overlap_threshold': 0.25,
+            'iou_threshold': 0.45,
+            'detection_image_size': 640,
             'detection_threshold': 0.5,
             'update_interval': 5,
             'camera_resolution': '1920x1080',
@@ -847,11 +872,11 @@ def config():
         return jsonify(default_config)
     
     elif request.method == 'POST':
+        global parking_data, main_config
         data = request.json
         
         # If calibration data is being saved, update parking_data
         if 'calibration_data' in data:
-            global parking_data
             calibration_spaces = data['calibration_data']
             
             # Update parking data with calibrated spaces
@@ -944,6 +969,10 @@ def config():
         
         with open(config_file, 'w') as f:
             json.dump(existing_config, f, indent=2)
+        
+        # Reload main_config to apply changes immediately
+        main_config = load_main_config()
+        logger.info(f"✓ Configuration updated and reloaded: confidence_threshold={main_config.get('confidence_threshold')}, overlap_threshold={main_config.get('overlap_threshold')}")
         
         return jsonify({'success': True, 'config': existing_config})
 
