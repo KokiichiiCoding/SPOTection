@@ -338,6 +338,7 @@
         const showOverlay = true; // Always show overlay - cannot be toggled off
         let currentFilter = 'all';
         let currentLotId = 'LOT-001'; // Track selected lot
+        let highlightedSpotId = null; // Track which spot is being hovered
         let detectionData = {
             spots: [],
             vehicles: [],  // Add vehicles array
@@ -554,10 +555,21 @@
                     y: point.y * canvas.height
                 }));
                 
-                // Determine color based on status
+                // Check if this spot is highlighted
+                const isHighlighted = highlightedSpotId === space.id;
+                
+                // Determine color based on status and highlight
                 const isFree = space.status === 'free';
-                const color = isFree ? '#10b981' : '#ef4444';
-                const fillColor = isFree ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)';
+                let color = isFree ? '#10b981' : '#ef4444';
+                let fillColor = isFree ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)';
+                let lineWidth = 2;
+                
+                // Apply highlight styling
+                if (isHighlighted) {
+                    color = '#fbbf24'; // Yellow/gold for highlight
+                    fillColor = 'rgba(251, 191, 36, 0.4)'; // Brighter, more opaque
+                    lineWidth = 4; // Thicker border
+                }
                 
                 // Fill
                 ctx.fillStyle = fillColor;
@@ -571,7 +583,7 @@
                 
                 // Border
                 ctx.strokeStyle = color;
-                ctx.lineWidth = 2;
+                ctx.lineWidth = lineWidth;
                 ctx.stroke();
                 
                 // Calculate center for label
@@ -640,11 +652,24 @@
                 const statusClass = spot.status === 'free' ? 'available' : 'occupied';
                 const statusLabel = spot.status === 'free' ? 'Available' : 'Occupied';
                 return `
-                    <div class="space-cell ${statusClass}" title="${spot.id} - ${statusLabel}">
+                    <div class="space-cell ${statusClass}" 
+                         title="${spot.id} - ${statusLabel}"
+                         onmouseenter="highlightSpot('${spot.id}')"
+                         onmouseleave="clearHighlight()">
                         ${spot.id.replace('SPACE-', '')}
                     </div>
                 `;
             }).join('');
+        }
+
+        function highlightSpot(spotId) {
+            highlightedSpotId = spotId;
+            drawDetectionOverlay();
+        }
+
+        function clearHighlight() {
+            highlightedSpotId = null;
+            drawDetectionOverlay();
         }
 
         function refreshFeed() {
