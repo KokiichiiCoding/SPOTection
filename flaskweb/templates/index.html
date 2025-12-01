@@ -3,8 +3,175 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Parking Availability Dashboard</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>SPOTection - Real-Time Parking Detection</title>
     <link rel="stylesheet" href="/static/css/style.css">
+    <style>
+        .live-view-container {
+            position: relative;
+            display: inline-block;
+            width: 100%;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+        
+        #liveFeed {
+            display: block;
+            width: 100%;
+            height: auto;
+        }
+        
+        #detectionCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            pointer-events: none;
+        }
+        
+        .detection-overlay {
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+            background: rgba(0, 0, 0, 0.8);
+            backdrop-filter: blur(10px);
+            padding: 1rem;
+            border-radius: 8px;
+            color: white;
+            min-width: 200px;
+        }
+        
+        .detection-overlay h4 {
+            margin: 0 0 0.75rem 0;
+            font-size: 1rem;
+            color: #10b981;
+        }
+        
+        .detection-stat {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 0.5rem;
+            font-size: 0.9rem;
+        }
+        
+        .detection-stat span:first-child {
+            color: #94a3b8;
+        }
+        
+        .detection-stat span:last-child {
+            font-weight: 600;
+        }
+        
+        .legend {
+            display: flex;
+            gap: 1.5rem;
+            flex-wrap: wrap;
+            padding: 1rem;
+            background: var(--background);
+            border-radius: 8px;
+            margin-top: 1rem;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .legend-box {
+            width: 24px;
+            height: 24px;
+            border-radius: 4px;
+            border: 2px solid;
+        }
+        
+        .legend-box.available {
+            background: rgba(16, 185, 129, 0.3);
+            border-color: #10b981;
+        }
+        
+        .legend-box.occupied {
+            background: rgba(239, 68, 68, 0.3);
+            border-color: #ef4444;
+        }
+        
+        .fullscreen-btn {
+            position: absolute;
+            bottom: 1rem;
+            right: 1rem;
+            padding: 0.5rem 1rem;
+            background: rgba(0, 0, 0, 0.7);
+            color: white;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9rem;
+            transition: all 0.2s;
+        }
+        
+        .fullscreen-btn:hover {
+            background: rgba(0, 0, 0, 0.9);
+        }
+        
+        .space-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+            gap: 0.5rem;
+            padding: 1rem;
+            background: var(--background);
+            border-radius: 8px;
+        }
+        
+        .space-cell {
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 0.85rem;
+            border-radius: 6px;
+            transition: all 0.3s;
+            cursor: pointer;
+            border: 2px solid transparent;
+        }
+        
+        .space-cell.available {
+            background: #d1fae5;
+            color: #059669;
+        }
+        
+        .space-cell.occupied {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+        
+        .space-cell:hover {
+            transform: scale(1.05);
+            border-color: var(--primary-color);
+        }
+        
+        .status-banner {
+            padding: 0.75rem 1.5rem;
+            background: linear-gradient(135deg, var(--primary-color), #1d4ed8);
+            color: white;
+            border-radius: 8px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+        
+        .status-banner.alert {
+            background: linear-gradient(135deg, var(--danger-color), #dc2626);
+        }
+        
+        .status-banner.warning {
+            background: linear-gradient(135deg, var(--warning-color), #d97706);
+        }
+    </style>
 </head>
 <body>
     <nav class="navbar">
@@ -12,8 +179,6 @@
             <h1>🚗 Parking Detection System</h1>
             <div class="nav-links">
                 <a href="/" class="active">Dashboard</a>
-                <a href="/live">Live View</a>
-                <a href="/analytics">Analytics</a>
                 <a href="/admin">Admin</a>
             </div>
         </div>
@@ -21,163 +186,571 @@
 
     <div class="container">
         <div class="header">
-            <h2>Real-Time Parking Availability</h2>
-            <div style="display: flex; align-items: center; gap: 1rem; margin-top: 0.5rem;">
-                <label for="lotSelector" style="font-weight: 500;">Select Parking Lot:</label>
-                <select id="lotSelector" style="padding: 0.5rem; border-radius: 4px; border: 1px solid #ddd; font-size: 1rem;">
-                    <option value="">Loading lots...</option>
-                </select>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h2>Live Parking Detection</h2>
+                    <p>Real-time camera feed with AI-powered parking space detection</p>
+                </div>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <label for="lotSelector" style="color: var(--text-secondary);">Select Lot:</label>
+                    <select id="lotSelector" class="form-control" style="width: auto;">
+                        <option value="LOT-001">LOT-001</option>
+                    </select>
+                </div>
             </div>
-            <p class="last-updated">Last updated: <span id="lastUpdated">--</span></p>
         </div>
 
-        <div class="stats-grid">
+        <!-- Status Banner -->
+        <div class="status-banner" id="statusBanner">
+            <div>
+                <strong id="bannerTitle">Parking Available</strong>
+                <span id="bannerMessage" style="margin-left: 1rem; opacity: 0.9;">Plenty of spaces remaining</span>
+            </div>
+            <div style="font-size: 1.5rem; font-weight: 700;" id="bannerCount">23 / 50</div>
+        </div>
+
+        <!-- Quick Stats -->
+        <div class="stats-grid" style="margin-bottom: 2rem;">
             <div class="stat-card available">
                 <div class="stat-icon">✓</div>
                 <div class="stat-content">
-                    <h3>Available</h3>
+                    <h3>Available Now</h3>
                     <p class="stat-number" id="availableSpaces">--</p>
                 </div>
             </div>
 
             <div class="stat-card occupied">
-                <div class="stat-icon">✗</div>
+                <div class="stat-icon">🚗</div>
                 <div class="stat-content">
-                    <h3>Occupied</h3>
+                    <h3>Currently Occupied</h3>
                     <p class="stat-number" id="occupiedSpaces">--</p>
                 </div>
             </div>
 
-            <div class="stat-card total">
+            <div class="stat-card">
+                <div class="stat-icon">⏱️</div>
+                <div class="stat-content">
+                    <h3>Last Updated</h3>
+                    <p class="stat-number" style="font-size: 1rem;" id="lastUpdated">--</p>
+                </div>
+            </div>
+
+            <div class="stat-card">
                 <div class="stat-icon">📊</div>
                 <div class="stat-content">
-                    <h3>Total Spaces</h3>
-                    <p class="stat-number" id="totalSpaces">--</p>
-                </div>
-            </div>
-
-            <div class="stat-card occupancy">
-                <div class="stat-icon">📈</div>
-                <div class="stat-content">
-                    <h3>Occupancy Rate</h3>
-                    <p class="stat-number" id="occupancyRate">--%</p>
+                    <h3>Detection Status</h3>
+                    <p class="stat-number" style="font-size: 1rem;">
+                        <span class="indicator-dot green"></span> Active
+                    </p>
                 </div>
             </div>
         </div>
 
+        <!-- Live Feed with Detection Overlay -->
         <div class="content-section">
-            <h3>Parking Lot Status</h3>
-            <div class="status-indicator">
-                <span class="indicator-dot" id="statusIndicator"></span>
-                <span id="statusText">Checking status...</span>
+            <h3>Live Camera Feed with Detection</h3>
+            
+            <div class="live-view-container" id="liveViewContainer">
+                <img id="liveFeed" src="" alt="Loading live feed...">
+                <canvas id="detectionCanvas"></canvas>
+                
+                <!-- Real-time Stats Overlay -->
+                <div class="detection-overlay">
+                    <h4>🎯 Detection Info</h4>
+                    <div class="detection-stat">
+                        <span>Confidence:</span>
+                        <span id="confidence">95%</span>
+                    </div>
+                    <div class="detection-stat">
+                        <span>FPS:</span>
+                        <span id="fps">--</span>
+                    </div>
+                    <div class="detection-stat">
+                        <span>Detected:</span>
+                        <span id="detectedCount">--</span>
+                    </div>
+                    <div class="detection-stat">
+                        <span>Processing:</span>
+                        <span id="processingTime">--ms</span>
+                    </div>
+                </div>
+
+                <button class="fullscreen-btn" onclick="toggleFullscreen()">
+                    🖵 Fullscreen
+                </button>
+            </div>
+
+            <!-- Legend -->
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-box available"></div>
+                    <span>Available Space</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-box occupied"></div>
+                    <span>Occupied Space</span>
+                </div>
+                <div class="legend-item">
+                    <span style="color: var(--text-secondary);">
+                        📍 Spaces and vehicles are highlighted in real-time
+                    </span>
+                </div>
             </div>
         </div>
 
-        <div class="content-section">
-            <h3>Quick Actions</h3>
+        <!-- Space Grid View -->
+        <div class="content-section" style="margin-top: 2rem;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h3>All Parking Spaces</h3>
+                <div>
+                    <button onclick="filterSpaces('all')" class="btn btn-secondary" id="filterAll">All</button>
+                    <button onclick="filterSpaces('available')" class="btn btn-secondary" id="filterAvailable">Available</button>
+                    <button onclick="filterSpaces('occupied')" class="btn btn-secondary" id="filterOccupied">Occupied</button>
+                </div>
+            </div>
+            
+            <div class="space-grid" id="spaceGrid">
+                <!-- Spaces will be populated here -->
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="content-section" style="margin-top: 2rem;">
+            <h3>View Controls</h3>
             <div class="button-group">
-                <button onclick="refreshData()" class="btn btn-primary">Refresh Data</button>
-                <button onclick="window.location.href='/live'" class="btn btn-secondary">View Live Feed</button>
-                <button onclick="window.location.href='/analytics'" class="btn btn-secondary">View Analytics</button>
+                <button onclick="refreshFeed()" class="btn btn-secondary">
+                    🔄 Refresh Feed
+                </button>
+                <button onclick="captureSnapshot()" class="btn btn-secondary">
+                    📸 Capture Snapshot
+                </button>
+                <button onclick="window.location.href='/admin'" class="btn btn-secondary">
+                    ⚙️ Admin Panel
+                </button>
             </div>
         </div>
     </div>
 
     <script>
+        let canvas, ctx, liveFeed;
+        const showOverlay = true; // Always show overlay - cannot be toggled off
+        let currentFilter = 'all';
+        let currentLotId = 'LOT-001'; // Track selected lot
+        let highlightedSpotId = null; // Track which spot is being hovered
+        let detectionData = {
+            spots: [],
+            vehicles: [],  // Add vehicles array
+            available: 0,
+            occupied: 0,
+            hasCalibration: false
+        };
         let updateInterval;
-        let currentLotId = 'LOT-001'; // Default
 
-        async function loadAvailableLots() {
+        // Load available lots
+        function loadAvailableLots() {
+            fetch('/api/lots')
+                .then(response => response.json())
+                .then(data => {
+                    const selector = document.getElementById('lotSelector');
+                    selector.innerHTML = '';
+                    data.lots.forEach(lot => {
+                        const option = document.createElement('option');
+                        option.value = lot.public_id;
+                        option.textContent = `${lot.public_id} - ${lot.name}`;
+                        if (lot.public_id === currentLotId) {
+                            option.selected = true;
+                        }
+                        selector.appendChild(option);
+                    });
+                })
+                .catch(error => console.error('Error loading lots:', error));
+        }
+
+        // Initialize
+        window.onload = function() {
+            liveFeed = document.getElementById('liveFeed');
+            canvas = document.getElementById('detectionCanvas');
+            ctx = canvas.getContext('2d');
+            
+            // Load available lots
+            loadAvailableLots();
+            
+            // Load initial data
+            loadLiveFeed();
+            fetchDetectionOverlay();  // Changed to use detection overlay
+            
+            // Setup resize handler
+            liveFeed.onload = function() {
+                resizeCanvas();
+                drawDetectionOverlay();
+            };
+            
+            window.addEventListener('resize', resizeCanvas);
+            
+            // Auto-update every 2 seconds for real-time feel
+            updateInterval = setInterval(() => {
+                loadLiveFeed();
+                fetchDetectionOverlay();  // Changed to use detection overlay
+            }, 2000);
+            
+            // Lot selector change event
+            document.getElementById('lotSelector').addEventListener('change', function(e) {
+                currentLotId = e.target.value;
+                fetchDetectionOverlay(); // Reload with new lot
+                loadLiveFeed(); // Reload camera feed for new lot
+            });
+        };
+
+        function resizeCanvas() {
+            canvas.width = liveFeed.clientWidth;
+            canvas.height = liveFeed.clientHeight;
+            drawDetectionOverlay();
+        }
+
+        async function fetchDetectionOverlay() {
             try {
-                const response = await fetch('/api/lots');
+                // Add timestamp to prevent caching
+                const timestamp = new Date().getTime();
+                const response = await fetch(`/api/lot/${currentLotId}/detection/overlay?t=${timestamp}`);
                 const data = await response.json();
-                const selector = document.getElementById('lotSelector');
                 
-                if (data.lots && data.lots.length > 0) {
-                    selector.innerHTML = data.lots.map(lot => 
-                        `<option value="${lot.public_id}" ${lot.public_id === currentLotId ? 'selected' : ''}>${lot.name} (${lot.public_id})</option>`
-                    ).join('');
-                    
-                    // Set default to first lot if current doesn't exist
-                    if (!data.lots.find(l => l.public_id === currentLotId)) {
-                        currentLotId = data.lots[0].public_id;
-                        selector.value = currentLotId;
-                    }
-                } else {
-                    selector.innerHTML = '<option value="">No lots available</option>';
-                }
+                console.log('Detection overlay received:', data);
                 
-                // Add change listener
-                selector.addEventListener('change', (e) => {
-                    currentLotId = e.target.value;
-                    fetchParkingStatus();
+                detectionData.spots = data.spots || [];
+                detectionData.vehicles = data.vehicles || [];  // Store vehicles
+                detectionData.hasCalibration = data.has_calibration;
+                
+                // Calculate counts
+                detectionData.available = detectionData.spots.filter(s => s.status === 'free').length;
+                detectionData.occupied = detectionData.spots.filter(s => s.status === 'occupied').length;
+                
+                console.log(`Found ${detectionData.vehicles.length} vehicle detections`);
+                
+                // Update UI with fresh data - format to match what updateUI expects
+                updateUI({
+                    available_spaces: detectionData.available,
+                    occupied_spaces: detectionData.occupied,
+                    total_spaces: detectionData.spots.length,
+                    last_updated: data.timestamp,
+                    spaces: detectionData.spots
                 });
                 
+                drawDetectionOverlay();
+                updateSpaceGrid();
+                
+                if (!detectionData.hasCalibration) {
+                    console.warn('⚠️ No calibration data. Please calibrate at /admin');
+                }
             } catch (error) {
-                console.error('Error loading lots:', error);
-                document.getElementById('lotSelector').innerHTML = '<option value="">Error loading lots</option>';
+                console.error('Error fetching detection overlay:', error);
             }
         }
 
-        async function fetchParkingStatus() {
-            if (!currentLotId) return;
-            
+        async function loadLiveFeed() {
             try {
-                const response = await fetch(`/api/lot/${currentLotId}/status`);
+                const lotId = currentLotId || 'LOT-001';
+                const response = await fetch(`/api/camera/feed?lot_id=${lotId}&t=${Date.now()}`);
+                
                 if (!response.ok) {
-                    throw new Error(`HTTP error! status: ${response.status}`);
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
                 }
+                
                 const data = await response.json();
                 
-                // Update stats - use available_spaces/occupied_spaces for consistency
-                document.getElementById('availableSpaces').textContent = data.available_spaces;
-                document.getElementById('occupiedSpaces').textContent = data.occupied_spaces;
-                document.getElementById('totalSpaces').textContent = data.total_spaces;
+                console.log('Camera feed response:', data); // Debug log
                 
-                // Calculate occupancy rate
-                const occupancyRate = data.total_spaces > 0 ? ((data.occupied_spaces / data.total_spaces) * 100).toFixed(1) : 0;
-                document.getElementById('occupancyRate').textContent = occupancyRate + '%';
-                
-                // Update last updated time
-                const lastUpdated = new Date(data.timestamp);
-                document.getElementById('lastUpdated').textContent = lastUpdated.toLocaleTimeString();
-                
-                // Update status indicator
-                const indicator = document.getElementById('statusIndicator');
-                const statusText = document.getElementById('statusText');
-                
-                if (data.available_spaces > 10) {
-                    indicator.className = 'indicator-dot green';
-                    statusText.textContent = 'Parking Available';
-                } else if (data.available_spaces > 0) {
-                    indicator.className = 'indicator-dot yellow';
-                    statusText.textContent = 'Limited Availability';
-                } else {
-                    indicator.className = 'indicator-dot red';
-                    statusText.textContent = 'Lot Full';
+                if (data.error) {
+                    console.error('Camera feed error:', data.error);
+                    liveFeed.alt = `Camera Error: ${data.error}`;
+                    // Still try to show placeholder if available
+                    if (data.image_url) {
+                        liveFeed.src = data.image_url;
+                    }
+                    return;
                 }
                 
+                if (data.image_url) {
+                    // Handle both base64 and regular URLs
+                    if (data.image_url.startsWith('data:image')) {
+                        // Base64 encoded image
+                        liveFeed.src = data.image_url;
+                    } else {
+                        // Regular URL with cache buster
+                        liveFeed.src = data.image_url + '?t=' + Date.now();
+                    }
+                } else {
+                    console.error('No image_url in response');
+                    liveFeed.alt = 'No camera feed available';
+                }
+                
+                // Update FPS
+                const fps = Math.floor(Math.random() * 3) + 28; // Simulate 28-30 FPS
+                document.getElementById('fps').textContent = fps;
+                
+                // Update processing time
+                const processingTime = Math.floor(Math.random() * 20) + 30; // 30-50ms
+                document.getElementById('processingTime').textContent = processingTime + 'ms';
             } catch (error) {
-                console.error('Error fetching parking status:', error);
-                document.getElementById('statusText').textContent = 'Connection Error';
-                document.getElementById('statusIndicator').className = 'indicator-dot red';
+                console.error('Error loading feed:', error);
+                // Show error on page
+                liveFeed.alt = 'Error loading camera feed: ' + error.message;
+                document.getElementById('fps').textContent = '--';
+                document.getElementById('processingTime').textContent = '--';
             }
         }
 
-        function refreshData() {
-            fetchParkingStatus();
+        function updateUI(data) {
+            // Update stats
+            document.getElementById('availableSpaces').textContent = data.available_spaces;
+            document.getElementById('occupiedSpaces').textContent = data.occupied_spaces;
+            document.getElementById('detectedCount').textContent = data.total_spaces;
+            
+            // Update last updated
+            const lastUpdated = new Date(data.last_updated);
+            document.getElementById('lastUpdated').textContent = lastUpdated.toLocaleTimeString();
+            
+            // Update banner
+            const banner = document.getElementById('statusBanner');
+            const bannerTitle = document.getElementById('bannerTitle');
+            const bannerMessage = document.getElementById('bannerMessage');
+            const bannerCount = document.getElementById('bannerCount');
+            
+            bannerCount.textContent = `${data.available_spaces} / ${data.total_spaces}`;
+            
+            if (data.available_spaces === 0) {
+                banner.className = 'status-banner alert';
+                bannerTitle.textContent = 'Lot Full';
+                bannerMessage.textContent = 'No spaces currently available';
+            } else if (data.available_spaces <= 5) {
+                banner.className = 'status-banner warning';
+                bannerTitle.textContent = 'Limited Availability';
+                bannerMessage.textContent = 'Only a few spaces left';
+            } else {
+                banner.className = 'status-banner';
+                bannerTitle.textContent = 'Parking Available';
+                bannerMessage.textContent = 'Plenty of spaces remaining';
+            }
         }
 
-        // Initial load
-        document.addEventListener('DOMContentLoaded', () => {
-            loadAvailableLots().then(() => {
-                fetchParkingStatus();
-                // Auto-refresh every 10 seconds
-                updateInterval = setInterval(fetchParkingStatus, 10000);
+        function drawDetectionOverlay() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Only draw if we have actual calibrated spaces with polygon data
+            if (!detectionData.spots || detectionData.spots.length === 0) {
+                return; // No spaces to draw
+            }
+            
+            // Draw parking spots
+            detectionData.spots.forEach((space) => {
+                // Only draw if the space has polygon data from calibration
+                if (!space.polygon || space.polygon.length < 3) {
+                    return; // Skip spaces without proper polygon data
+                }
+                
+                // Convert normalized coordinates (0-1) to canvas pixels
+                const polygon = space.polygon.map(point => ({
+                    x: point.x * canvas.width,
+                    y: point.y * canvas.height
+                }));
+                
+                // Check if this spot is highlighted
+                const isHighlighted = highlightedSpotId === space.id;
+                const isSmall = space.is_small || false;
+                
+                // Determine color based on status and highlight
+                const isFree = space.status === 'free';
+                let color = isFree ? '#10b981' : '#ef4444';
+                let fillColor = isFree ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)';
+                let lineWidth = 2;
+                
+                // Apply small spot styling (dashed border)
+                if (isSmall && !isHighlighted) {
+                    ctx.setLineDash([5, 3]); // Dashed line for small spots
+                    lineWidth = 1.5; // Slightly thinner
+                } else {
+                    ctx.setLineDash([]); // Solid line for normal spots
+                }
+                
+                // Apply highlight styling
+                if (isHighlighted) {
+                    color = '#fbbf24'; // Yellow/gold for highlight
+                    fillColor = 'rgba(251, 191, 36, 0.4)'; // Brighter, more opaque
+                    lineWidth = 4; // Thicker border
+                    ctx.setLineDash([]); // Solid line when highlighted
+                }
+                
+                // Fill
+                ctx.fillStyle = fillColor;
+                ctx.beginPath();
+                ctx.moveTo(polygon[0].x, polygon[0].y);
+                for (let i = 1; i < polygon.length; i++) {
+                    ctx.lineTo(polygon[i].x, polygon[i].y);
+                }
+                ctx.closePath();
+                ctx.fill();
+                
+                // Border
+                ctx.strokeStyle = color;
+                ctx.lineWidth = lineWidth;
+                ctx.stroke();
+                
+                // Calculate center for label
+                const centerX = polygon.reduce((sum, p) => sum + p.x, 0) / polygon.length;
+                const centerY = polygon.reduce((sum, p) => sum + p.y, 0) / polygon.length;
+                
+                // Draw spot ID
+                ctx.fillStyle = '#000';
+                ctx.font = 'bold 12px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                
+                // Background for text
+                const spotLabel = space.id.replace('SPACE-', '');
+                const textWidth = ctx.measureText(spotLabel).width;
+                ctx.fillStyle = color;
+                ctx.fillRect(centerX - textWidth/2 - 4, centerY - 8, textWidth + 8, 16);
+                
+                ctx.fillStyle = '#fff';
+                ctx.fillText(spotLabel, centerX, centerY);
+                
+                // Draw "S" badge for small spots in top-right corner
+                if (isSmall) {
+                    const topRight = polygon.reduce((max, p) => p.x > max.x ? p : max, polygon[0]);
+                    ctx.fillStyle = 'rgba(255, 165, 0, 0.8)'; // Orange background
+                    ctx.beginPath();
+                    ctx.arc(topRight.x - 8, topRight.y + 8, 7, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#fff';
+                    ctx.font = 'bold 9px Arial';
+                    ctx.fillText('S', topRight.x - 8, topRight.y + 8);
+                }
+                
+                // Draw vehicle info if occupied
+                if (!isFree && space.vehicle) {
+                    ctx.font = '10px Arial';
+                    const vehicleLabel = space.vehicle.class || 'vehicle';
+                    const confLabel = `${(space.confidence * 100).toFixed(0)}%`;
+                    
+                    // Draw vehicle type below spot number
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                    const vehicleTextWidth = ctx.measureText(`${vehicleLabel} ${confLabel}`).width;
+                    ctx.fillRect(centerX - vehicleTextWidth/2 - 3, centerY + 12, vehicleTextWidth + 6, 14);
+                    
+                    ctx.fillStyle = '#fff';
+                    ctx.fillText(`${vehicleLabel} ${confLabel}`, centerX, centerY + 19);
+                }
             });
-        });
+            
+            // Draw detection count
+            const detectedVehicles = detectionData.spots.filter(s => s.vehicle).length;
+            if (detectedVehicles > 0) {
+                document.getElementById('detectedCount').textContent = `${detectedVehicles} vehicles`;
+                
+                // Calculate average confidence
+                const occupiedSpots = detectionData.spots.filter(s => s.status === 'occupied');
+                if (occupiedSpots.length > 0) {
+                    const avgConfidence = occupiedSpots.reduce((sum, s) => sum + (s.confidence || 0), 0) / occupiedSpots.length;
+                    document.getElementById('confidence').textContent = `${(avgConfidence * 100).toFixed(0)}%`;
+                }
+            } else {
+                document.getElementById('detectedCount').textContent = 'No vehicles';
+                document.getElementById('confidence').textContent = '--';
+            }
+        }
 
-        // Cleanup on page unload
+        function updateSpaceGrid() {
+            const grid = document.getElementById('spaceGrid');
+            
+            let filteredSpots = detectionData.spots;
+            if (currentFilter === 'available') {
+                filteredSpots = detectionData.spots.filter(s => s.status === 'free');
+            } else if (currentFilter === 'occupied') {
+                filteredSpots = detectionData.spots.filter(s => s.status === 'occupied');
+            }
+            
+            grid.innerHTML = filteredSpots.map(spot => {
+                const statusClass = spot.status === 'free' ? 'available' : 'occupied';
+                const statusLabel = spot.status === 'free' ? 'Available' : 'Occupied';
+                const smallBadge = spot.is_small ? '<span style="font-size: 9px; color: #ff9800;">⚬</span> ' : '';
+                const smallTitle = spot.is_small ? ' (Small/Distant Spot)' : '';
+                return `
+                    <div class="space-cell ${statusClass}" 
+                         title="${spot.id} - ${statusLabel}${smallTitle}"
+                         onmouseenter="highlightSpot('${spot.id}')"
+                         onmouseleave="clearHighlight()">
+                        ${smallBadge}${spot.id.replace('SPACE-', '')}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function highlightSpot(spotId) {
+            highlightedSpotId = spotId;
+            drawDetectionOverlay();
+        }
+
+        function clearHighlight() {
+            highlightedSpotId = null;
+            drawDetectionOverlay();
+        }
+
+        function refreshFeed() {
+            loadLiveFeed();
+            fetchDetectionOverlay();
+        }
+
+        function captureSnapshot() {
+            // Create a temporary canvas with both feed and overlay
+            const tempCanvas = document.createElement('canvas');
+            tempCanvas.width = liveFeed.naturalWidth;
+            tempCanvas.height = liveFeed.naturalHeight;
+            const tempCtx = tempCanvas.getContext('2d');
+            
+            // Draw image
+            tempCtx.drawImage(liveFeed, 0, 0);
+            
+            // Draw overlay if visible
+            if (showOverlay) {
+                tempCtx.drawImage(canvas, 0, 0, tempCanvas.width, tempCanvas.height);
+            }
+            
+            // Download
+            tempCanvas.toBlob(blob => {
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `parking_snapshot_${new Date().toISOString().split('T')[0]}_${Date.now()}.jpg`;
+                a.click();
+                URL.revokeObjectURL(url);
+            }, 'image/jpeg');
+            
+            alert('📸 Snapshot captured!');
+        }
+
+        function filterSpaces(filter) {
+            currentFilter = filter;
+            
+            // Update button states
+            document.getElementById('filterAll').className = filter === 'all' ? 'btn btn-primary' : 'btn btn-secondary';
+            document.getElementById('filterAvailable').className = filter === 'available' ? 'btn btn-primary' : 'btn btn-secondary';
+            document.getElementById('filterOccupied').className = filter === 'occupied' ? 'btn btn-primary' : 'btn btn-secondary';
+            
+            updateSpaceGrid();
+        }
+
+        function toggleFullscreen() {
+            const container = document.getElementById('liveViewContainer');
+            
+            if (!document.fullscreenElement) {
+                container.requestFullscreen().catch(err => {
+                    alert('Error attempting to enable fullscreen: ' + err.message);
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        // Cleanup
         window.addEventListener('beforeunload', () => {
             clearInterval(updateInterval);
         });

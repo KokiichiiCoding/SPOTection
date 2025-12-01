@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>Live Parking View - Parking Detection System</title>
+    <title>SPOTection - Real-Time Parking Detection</title>
     <link rel="stylesheet" href="/static/css/style.css">
     <style>
         .live-view-container {
@@ -178,9 +178,7 @@
         <div class="nav-container">
             <h1>🚗 Parking Detection System</h1>
             <div class="nav-links">
-                <a href="/">Dashboard</a>
-                <a href="/live" class="active">Live View</a>
-                <a href="/analytics">Analytics</a>
+                <a href="/" class="active">Dashboard</a>
                 <a href="/admin">Admin</a>
             </div>
         </div>
@@ -326,8 +324,8 @@
                 <button onclick="captureSnapshot()" class="btn btn-secondary">
                     📸 Capture Snapshot
                 </button>
-                <button onclick="window.location.href='/analytics'" class="btn btn-secondary">
-                    📊 View Analytics
+                <button onclick="window.location.href='/admin'" class="btn btn-secondary">
+                    ⚙️ Admin Panel
                 </button>
             </div>
         </div>

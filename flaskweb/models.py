@@ -26,6 +26,10 @@ class ParkingLot(db.Model):
     total_spots = db.Column(db.Integer)
     camera_url = db.Column(db.String(500), nullable=True)  # Camera feed URL for this lot
     camera_type = db.Column(db.String(50), nullable=True)  # Camera type (http_snapshot, rtsp, etc.)
+    
+    # Custom extraction pattern for website embeds
+    extraction_pattern_type = db.Column(db.String(50), nullable=True)  # 'auto', 'first_img', 'img_by_id', 'img_by_class'
+    extraction_pattern_value = db.Column(db.String(200), nullable=True)  # ID or class name when applicable
 
     spots = db.relationship('Spot', back_populates='lot')
 
