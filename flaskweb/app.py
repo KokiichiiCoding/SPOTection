@@ -66,6 +66,15 @@ limiter = Limiter(
 # Secret key for sessions (generate a random one if not in config)
 app.config['SECRET_KEY'] = main_config.get('secret_key', secrets.token_hex(32))
 
+# Initialize rate limiter
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://",
+    strategy="fixed-window"
+)
+
 # Admin credentials (load from config or use defaults - should be changed in production!)
 ADMIN_USERNAME = main_config.get('admin_username', 'admin')
 ADMIN_PASSWORD = main_config.get('admin_password', 'admin123')  # Change this!
@@ -794,6 +803,7 @@ def manage_space(space_id):
         return jsonify({'error': 'Space not found'}), 404
 
 @app.route('/api/lot/<string:lot_id>/calibration', methods=['GET', 'POST'])
+
 @limiter.limit("30 per minute")  # Calibration endpoint - restricted
 def lot_calibration(lot_id):
     """Get or set calibration for a specific lot"""
@@ -1095,7 +1105,7 @@ def config():
         return jsonify({'success': True, 'config': existing_config})
 
 @app.route('/api/camera/feed', methods=['GET'])
-@limiter.limit("30 per minute")  # Camera feed - more restrictive
+@limiter.limit("600 per minute")  # Higher limit for live camera feed
 def camera_feed():
     """Get latest camera frame for a specific lot or default camera"""
     global camera
@@ -1218,6 +1228,7 @@ def get_detection_overlay():
     return get_lot_detection_overlay(lot_id)
 
 @app.route('/api/lot/<lot_id>/detection/overlay', methods=['GET'])
+@limiter.limit("60 per minute")  # Higher limit for live overlay updates
 def get_lot_detection_overlay(lot_id):
     """Get detection overlay data for a specific lot with spot status and vehicle information"""
     try:
@@ -1408,6 +1419,7 @@ def debug_calibration():
 
 @app.route('/api/camera/config', methods=['POST'])
 @login_required
+@limiter.limit("10 per minute")  # Lower limit for configuration changes
 def set_camera_config():
     """Set new camera configuration"""
     global camera
@@ -1479,6 +1491,14 @@ def not_found(error):
 @app.errorhandler(500)
 def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
+
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    """Handle rate limit exceeded errors"""
+    return jsonify({
+        'error': 'Rate limit exceeded',
+        'message': str(e.description)
+    }), 429
 
 # ============================================
 # MULTI-LOT MANAGEMENT API
@@ -1788,6 +1808,7 @@ if __name__ == '__main__':
 
 # Database Routes
 @app.route('/api/lot/<string:lot_public_id>/status')
+@limiter.limit("60 per minute")  # Higher limit for live status updates
 def get_lot_status(lot_public_id):
     """Endpoint that generates a LotStatus object based on the latest data from the DB."""
     try:
