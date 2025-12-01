@@ -53,6 +53,16 @@ main_config = load_main_config()
 app = Flask(__name__)
 CORS(app)
 
+# Initialize rate limiter
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["1000 per hour"],  # Default limit for all routes
+    storage_uri="memory://",  # Use in-memory storage (for production, consider Redis)
+    storage_options={},
+    strategy="fixed-window"
+)
+
 # Secret key for sessions (generate a random one if not in config)
 app.config['SECRET_KEY'] = main_config.get('secret_key', secrets.token_hex(32))
 
@@ -748,7 +758,7 @@ def test_multilot():
 
 # API Endpoints
 @app.route('/api/parking/status', methods=['GET'])
-@limiter.limit("60 per minute")  # Higher limit for live status updates
+@limiter.limit("60 per minute")  # Public API - moderate limit
 def get_parking_status():
     """Get current parking lot status - redirects to default lot with fresh config data"""
     # Reload calibration data from config to ensure sync
@@ -793,7 +803,8 @@ def manage_space(space_id):
         return jsonify({'error': 'Space not found'}), 404
 
 @app.route('/api/lot/<string:lot_id>/calibration', methods=['GET', 'POST'])
-@limiter.limit("30 per minute")  # Moderate limit for calibration operations
+
+@limiter.limit("30 per minute")  # Calibration endpoint - restricted
 def lot_calibration(lot_id):
     """Get or set calibration for a specific lot"""
     # POST requires authentication
@@ -957,6 +968,7 @@ def lot_calibration_status(lot_id):
         return jsonify({'error': str(e)}), 500
 
 @app.route('/api/config', methods=['GET', 'POST'])
+@limiter.limit("20 per minute")  # Config endpoint - very restricted
 def config():
     """Get or update configuration - UC-005"""
     # POST requires authentication
@@ -1093,7 +1105,7 @@ def config():
         return jsonify({'success': True, 'config': existing_config})
 
 @app.route('/api/camera/feed', methods=['GET'])
-@limiter.limit("60 per minute")  # Higher limit for live camera feed
+@limiter.limit("600 per minute")  # Higher limit for live camera feed
 def camera_feed():
     """Get latest camera frame for a specific lot or default camera"""
     global camera
@@ -1209,7 +1221,7 @@ def control_detection():
         return jsonify({'error': 'Invalid action. Use "start" or "stop"'}), 400
 
 @app.route('/api/detection/overlay', methods=['GET'])
-@limiter.limit("60 per minute")  # Higher limit for live overlay updates
+@limiter.limit("60 per minute")  # Overlay data - moderate limit
 def get_detection_overlay():
     """Get detection overlay data with spot status and vehicle information (default lot)"""
     lot_id = main_config.get('default_lot_id', 'LOT-001')
