@@ -6,7 +6,7 @@ The SPOTection calibration system allows you to define parking spot boundaries o
 ## How Calibration Works
 
 ### 1. **Web-Based Calibration** (Recommended)
-Access the admin panel at `http://localhost:5000/admin`
+Access the admin panel at `http://{Your Domain}/admin`
 
 **Steps:**
 1. View the camera feed in the calibration canvas
