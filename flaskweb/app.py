@@ -1,7 +1,9 @@
-from flask import Flask, render_template, jsonify, request, send_from_directory
+from flask import Flask, render_template, jsonify, request, send_from_directory, session, redirect, url_for
 from flask_cors import CORS
 import sys
 import os
+from functools import wraps
+import secrets
 
 # Add parent directory to path to allow imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -49,6 +51,13 @@ main_config = load_main_config()
 app = Flask(__name__)
 CORS(app)
 
+# Secret key for sessions (generate a random one if not in config)
+app.config['SECRET_KEY'] = main_config.get('secret_key', secrets.token_hex(32))
+
+# Admin credentials (load from config or use defaults - should be changed in production!)
+ADMIN_USERNAME = main_config.get('admin_username', 'admin')
+ADMIN_PASSWORD = main_config.get('admin_password', 'admin123')  # Change this!
+
 # Format: postgresql://USER:PASSWORD@HOST:PORT/DATABASE_NAME
 app.config['SQLALCHEMY_DATABASE_URI'] = main_config.get('database_uri', 'postgresql://spotection_client:password123@localhost:5432/parking_db')
 app.config['SQLALCHEMY_TRACK_MODIFICATION'] = False
@@ -88,6 +97,8 @@ def load_camera_config():
     config_file = 'config.json'
     camera_source = 'placeholder'
     camera_url = None
+    extraction_pattern_type = 'auto'
+    extraction_pattern_value = None
 
     # First try to get camera from default lot (LOT-001)
     try:
@@ -96,9 +107,11 @@ def load_camera_config():
             if default_lot and default_lot.camera_url:
                 camera_url = default_lot.camera_url
                 camera_source = default_lot.camera_type or 'auto'
-                print(f"✅ Loaded camera from LOT-001: {camera_source} - {camera_url}")
+                extraction_pattern_type = default_lot.extraction_pattern_type or 'auto'
+                extraction_pattern_value = default_lot.extraction_pattern_value
+                logger.info(f"Loaded camera from LOT-001: {camera_source}")
     except Exception as e:
-        print(f"Note: Could not load camera from database: {e}")
+        logger.debug(f"Could not load camera from database: {e}")
 
     # Fallback to config.json if no database camera found
     if not camera_url and os.path.exists(config_file):
@@ -108,19 +121,21 @@ def load_camera_config():
                 if 'camera_source' in config and 'camera_url' in config:
                     camera_source = config.get('camera_source')
                     camera_url = config.get('camera_url')
-                    print(f"✅ Loaded camera config from file: {camera_source} - {camera_url}")
+                    extraction_pattern_type = config.get('extraction_pattern_type', 'auto')
+                    extraction_pattern_value = config.get('extraction_pattern_value')
+                    logger.info(f"Loaded camera config from file: {camera_source}")
             except Exception as e:
-                print(f"Error loading camera config: {e}")
+                logger.debug(f"Error loading camera config: {e}")
 
     # Stop old camera
     if camera:
-        print("🔄 Stopping old camera before reload...")
+        logger.info("Stopping old camera before reload")
         camera.stop()
         time.sleep(0.5)
 
     # Create new camera
-    camera = create_camera_feed(camera_source, camera_url)
-    print(f"📹 Camera initialized: {camera.get_info()}")
+    camera = create_camera_feed(camera_source, camera_url, extraction_pattern_type, extraction_pattern_value)
+    logger.info(f"Camera initialized: {camera.get_info()}")
 
 # Load initial camera config (skip during testing)
 if not os.environ.get('TESTING'):
@@ -491,7 +506,12 @@ def detection_loop():
                     # Create temporary camera for this lot
                     lot_camera = None
                     try:
-                        lot_camera = create_camera_feed(lot.camera_type or 'auto', lot.camera_url)
+                        lot_camera = create_camera_feed(
+                            lot.camera_type or 'auto',
+                            lot.camera_url,
+                            lot.extraction_pattern_type or 'auto',
+                            lot.extraction_pattern_value
+                        )
                     except Exception as e:
                         logger.error(f"Failed to create camera for {lot_id}: {e}")
                         continue
@@ -613,7 +633,7 @@ def load_calibration():
                 if 'calibration_data' in config:
                     return config['calibration_data']
         except Exception as e:
-            print(f"Error loading calibration: {e}")
+            logger.debug(f"Error loading calibration: {e}")
     return []
 
 # Initialize parking spaces from calibration or create empty list (skip during testing)
@@ -622,7 +642,7 @@ if not os.environ.get('TESTING'):
     if calibration_data:
         parking_data['spaces'] = calibration_data
         parking_data['total_spaces'] = len(calibration_data)
-        print(f"✅ Loaded {len(calibration_data)} calibrated parking spaces")
+        logger.info(f"Loaded {len(calibration_data)} calibrated parking spaces")
     else:
         # Initialize mock parking spaces without polygons
         for i in range(50):
@@ -631,7 +651,7 @@ if not os.environ.get('TESTING'):
                 'status': 'available' if i < 23 else 'occupied',
                 'polygon': []  # Empty - will be filled by calibration
             })
-        print("⚠️ No calibration data found. Please calibrate the system at /admin.")
+        logger.warning("No calibration data found. Please calibrate the system at /admin.")
 else:
     calibration_data = []
 
@@ -652,23 +672,59 @@ if not os.environ.get('TESTING'):
     update_thread = threading.Thread(target=update_parking_data, daemon=True)
     update_thread.start()
 
+# ============================================
+# AUTHENTICATION
+# ============================================
+def login_required(f):
+    """Decorator to require login for routes"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        if not session.get('logged_in'):
+            return redirect(url_for('login', next=request.url))
+        return f(*args, **kwargs)
+    return decorated_function
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Login page"""
+    if request.method == 'POST':
+        username = request.form.get('username')
+        password = request.form.get('password')
+        
+        if username == ADMIN_USERNAME and password == ADMIN_PASSWORD:
+            session['logged_in'] = True
+            session['username'] = username
+            next_page = request.args.get('next')
+            return redirect(next_page or url_for('admin'))
+        else:
+            return render_template('login.html', error='Invalid credentials')
+    
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    """Logout"""
+    session.clear()
+    return redirect(url_for('index'))
+
 # Routes
 @app.route('/')
 def index():
-    """Main dashboard - UC-001: View Real-Time Parking Availability"""
+    """Main dashboard with live detection - UC-001: View Real-Time Parking Availability"""
     return render_template('index.html')
 
 @app.route('/live')
 def live():
-    """Live view - Real-time detection feed for users"""
-    return render_template('live.html')
+    """Redirect to main dashboard"""
+    return redirect(url_for('index'))
 
 @app.route('/analytics')
 def analytics():
-    """Analytics dashboard - UC-004: Generate Analytics Report"""
-    return render_template('analytics.html')
+    """Redirect to main dashboard"""
+    return redirect(url_for('index'))
 
 @app.route('/admin')
+@login_required
 def admin():
     """Admin panel - UC-002: Calibrate, UC-005: Configure"""
     return render_template('admin.html')
@@ -704,6 +760,10 @@ def get_spaces():
 @app.route('/api/parking/space/<space_id>', methods=['GET', 'PUT'])
 def manage_space(space_id):
     """Get or update individual space"""
+    # PUT requires authentication
+    if request.method == 'PUT' and not session.get('logged_in'):
+        return jsonify({'error': 'Authentication required'}), 401
+    
     if request.method == 'GET':
         space = next((s for s in parking_data['spaces'] if s['id'] == space_id), None)
         if space:
@@ -722,6 +782,10 @@ def manage_space(space_id):
 @app.route('/api/lot/<string:lot_id>/calibration', methods=['GET', 'POST'])
 def lot_calibration(lot_id):
     """Get or set calibration for a specific lot"""
+    # POST requires authentication
+    if request.method == 'POST' and not session.get('logged_in'):
+        return jsonify({'error': 'Authentication required'}), 401
+    
     if request.method == 'GET':
         # Get calibration for this lot
         config_file = 'config.json'
@@ -861,6 +925,10 @@ def lot_calibration_status(lot_id):
 @app.route('/api/config', methods=['GET', 'POST'])
 def config():
     """Get or update configuration - UC-005"""
+    # POST requires authentication
+    if request.method == 'POST' and not session.get('logged_in'):
+        return jsonify({'error': 'Authentication required'}), 401
+    
     config_file = 'config.json'
     
     if request.method == 'GET':
@@ -1007,7 +1075,12 @@ def camera_feed():
         
         # Create temporary camera for this lot
         try:
-            temp_camera = create_camera_feed(lot.camera_type or 'auto', lot.camera_url)
+            temp_camera = create_camera_feed(
+                lot.camera_type or 'auto',
+                lot.camera_url,
+                lot.extraction_pattern_type or 'auto',
+                lot.extraction_pattern_value
+            )
             image_data = temp_camera.get_frame('base64')
             temp_camera.stop()  # Clean up
             
@@ -1071,6 +1144,7 @@ def detection_status():
     })
 
 @app.route('/api/detection/load_model', methods=['POST'])
+@login_required
 def load_model_endpoint():
     """Manually load detection model"""
     try:
@@ -1083,6 +1157,7 @@ def load_model_endpoint():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/detection/control', methods=['POST'])
+@login_required
 def control_detection():
     """Start or stop detection"""
     action = request.json.get('action')
@@ -1187,6 +1262,7 @@ def get_lot_detection_overlay(lot_id):
         return jsonify({'error': str(e), 'spots': [], 'vehicles': [], 'has_calibration': False}), 500
 
 @app.route('/api/camera/refresh', methods=['POST'])
+@login_required
 def refresh_camera():
     """Force reload camera from config"""
     try:
@@ -1293,24 +1369,27 @@ def debug_calibration():
     return jsonify(calibration_info)
 
 @app.route('/api/camera/config', methods=['POST'])
+@login_required
 def set_camera_config():
     """Set new camera configuration"""
     global camera
     
     data = request.json
     camera_url = data.get('cameraUrl')
-    camera_source = data.get('cameraSource') # Can be empty
+    camera_source = data.get('cameraSource')  # Can be empty
+    extraction_pattern_type = data.get('extractionPatternType', 'auto')
+    extraction_pattern_value = data.get('extractionPatternValue')
 
     if not camera_url:
         return jsonify({'error': 'Camera URL is required'}), 400
 
     # Stop and cleanup old camera feed completely
     if camera:
-        print("🛑 Stopping old camera feed...")
+        logger.info("Stopping old camera feed")
         try:
             camera.stop()
         except Exception as e:
-            print(f"Warning during camera stop: {e}")
+            logger.warning(f"Warning during camera stop: {e}")
         camera = None
         time.sleep(1)  # Give more time for complete cleanup
 
@@ -1332,14 +1411,21 @@ def set_camera_config():
         # If auto-detecting, remove the old source type
         if 'camera_source' in existing_config:
             del existing_config['camera_source']
+    
+    # Save extraction pattern settings
+    existing_config['extraction_pattern_type'] = extraction_pattern_type
+    if extraction_pattern_value:
+        existing_config['extraction_pattern_value'] = extraction_pattern_value
+    elif 'extraction_pattern_value' in existing_config:
+        del existing_config['extraction_pattern_value']
 
     with open(config_file, 'w') as f:
         json.dump(existing_config, f, indent=2)
 
     # Create completely new camera with updated config
-    print(f"🆕 Creating new camera: {camera_source or 'auto'} - {camera_url}")
-    camera = create_camera_feed(camera_source or '', camera_url)
-    print(f"✅ New camera initialized: {camera.get_info()}")
+    logger.info(f"Creating new camera: {camera_source or 'auto'}")
+    camera = create_camera_feed(camera_source or '', camera_url, extraction_pattern_type, extraction_pattern_value)
+    logger.info(f"New camera initialized: {camera.get_info()}")
 
     return jsonify({
         'success': True,
@@ -1416,6 +1502,7 @@ def get_all_lots():
     })
 
 @app.route('/api/lots', methods=['POST'])
+@login_required
 def create_lot():
     """Create a new parking lot"""
     data = request.json
@@ -1450,6 +1537,10 @@ def create_lot():
 @app.route('/api/lot/<string:lot_id>/camera', methods=['GET', 'PUT'])
 def lot_camera_config(lot_id):
     """Get or update camera configuration for a specific lot"""
+    # PUT requires authentication
+    if request.method == 'PUT' and not session.get('logged_in'):
+        return jsonify({'error': 'Authentication required'}), 401
+    
     lot = ParkingLot.query.filter_by(public_id=lot_id).first()
     
     if not lot:
@@ -1459,48 +1550,70 @@ def lot_camera_config(lot_id):
         return jsonify({
             'lot_id': lot.public_id,
             'camera_url': lot.camera_url,
-            'camera_type': lot.camera_type
+            'camera_type': lot.camera_type,
+            'extraction_pattern_type': lot.extraction_pattern_type,
+            'extraction_pattern_value': lot.extraction_pattern_value
         })
     
     elif request.method == 'PUT':
         data = request.json
         lot.camera_url = data.get('camera_url')
         lot.camera_type = data.get('camera_type', 'website_embed')
+        lot.extraction_pattern_type = data.get('extraction_pattern_type', 'auto')
+        lot.extraction_pattern_value = data.get('extraction_pattern_value')
         
         try:
             db.session.commit()
             
             # If this is LOT-001 (default), reload the camera feed
             if lot.public_id == 'LOT-001':
-                print(f"🔄 Reloading camera for default lot: {lot.camera_url}")
+                logger.info(f"Reloading camera for default lot")
                 load_camera_config()
             
             return jsonify({
                 'success': True,
                 'lot_id': lot.public_id,
                 'camera_url': lot.camera_url,
-                'camera_type': lot.camera_type
+                'camera_type': lot.camera_type,
+                'extraction_pattern_type': lot.extraction_pattern_type,
+                'extraction_pattern_value': lot.extraction_pattern_value
             })
         except Exception as e:
             db.session.rollback()
             return jsonify({'error': str(e)}), 500
 
 @app.route('/api/lots/<string:lot_id>', methods=['DELETE'])
+@login_required
 def delete_lot(lot_id):
     """Delete a parking lot and all its data"""
-    lot = ParkingLot.query.filter_by(public_id=lot_id).first_or_404()
+    # Prevent deletion of default lot
+    if lot_id == 'LOT-001':
+        return jsonify({'success': False, 'error': 'Cannot delete the default lot (LOT-001)'}), 400
     
-    # Delete all related data
-    for spot in lot.spots:
-        StatusUpdate.query.filter_by(spot_id=spot.id).delete()
-        db.session.delete(spot)
+    lot = ParkingLot.query.filter_by(public_id=lot_id).first()
     
-    db.session.delete(lot)
-    db.session.commit()
+    if not lot:
+        return jsonify({'success': False, 'error': f'Lot {lot_id} not found'}), 404
     
-    return jsonify({'success': True, 'message': f'Lot {lot_id} deleted'})
+    try:
+        # Delete all related data in correct order
+        for spot in lot.spots:
+            StatusUpdate.query.filter_by(spot_id=spot.id).delete()
+            db.session.delete(spot)
+        
+        db.session.delete(lot)
+        db.session.commit()
+        
+        logger.info(f"✓ Deleted lot {lot_id} and all associated data")
+        
+        return jsonify({'success': True, 'message': f'Lot {lot_id} deleted successfully'})
+    except Exception as e:
+        db.session.rollback()
+        logger.error(f"Error deleting lot {lot_id}: {e}")
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/api/lots/<string:lot_id>', methods=['PUT'])
+@login_required
 def update_lot(lot_id):
     """Update parking lot information"""
     lot = ParkingLot.query.filter_by(public_id=lot_id).first_or_404()
@@ -1523,6 +1636,7 @@ def update_lot(lot_id):
     })
 
 @app.route('/api/lot/<string:lot_id>/status/cleanup', methods=['POST'])
+@login_required
 def cleanup_old_status_updates(lot_id):
     """Clean up old status updates, keeping only the latest N per spot"""
     try:
@@ -1604,21 +1718,21 @@ def get_spot_status_history(lot_id):
         return jsonify({'error': str(e)}), 500
 
 if __name__ == '__main__':
-    print("🚗 Parking Detection System - Alpha")
-    print("📍 Server starting on http://localhost:5000")
+    logger.info("Parking Detection System - Starting")
+    logger.info("Server starting on http://localhost:5000")
     if camera:
-        print(f"📹 Camera Info: {camera.get_info()}")
+        logger.info(f"Camera Info: {camera.get_info()}")
     
     # Start detection if available
     if DETECTION_AVAILABLE:
         if start_detection():
-            print("🔍 Background detection: ENABLED")
+            logger.info("Background detection: ENABLED")
         else:
-            print("⚠ Background detection: FAILED TO START")
+            logger.warning("Background detection: FAILED TO START")
     else:
-        print("⚠ Background detection: DISABLED (install ultralytics and opencv-python)")
+        logger.warning("Background detection: DISABLED (install ultralytics and opencv-python)")
     
-    print("=" * 50)
+    logger.info("=" * 50)
     
     try:
         app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
@@ -1627,7 +1741,7 @@ if __name__ == '__main__':
         stop_detection()
         if camera:
             camera.stop()
-        print("\n👋 Server stopped. Cleanup complete.")
+        logger.info("Server stopped. Cleanup complete.")
 
 # Database Routes
 @app.route('/api/lot/<string:lot_public_id>/status')

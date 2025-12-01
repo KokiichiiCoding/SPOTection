@@ -9,5 +9,9 @@
     "camera_url": null,
     "camera_source": "placeholder",
     "screenshot_interval": 120,
-    "save_raw_screenshots": true
+    "save_raw_screenshots": true,
+    "admin_username": "admin",
+    "admin_password": "admin123",
+    "secret_key": "CHANGE_THIS_TO_A_RANDOM_STRING"
 }
+

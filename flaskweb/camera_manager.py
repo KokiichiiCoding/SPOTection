@@ -8,6 +8,10 @@ from io import BytesIO
 import time
 import threading
 import os
+import logging
+
+# Setup logging
+logger = logging.getLogger(__name__)
 
 try:
     from PIL import Image, ImageDraw, ImageFont
@@ -15,21 +19,21 @@ try:
     PILLOW_AVAILABLE = True
 except ImportError:
     PILLOW_AVAILABLE = False
-    print("⚠️ PIL/Pillow not installed. Install with: pip install pillow")
+    logger.warning("PIL/Pillow not installed. Install with: pip install pillow")
 
 try:
     import cv2
     CV2_AVAILABLE = True
 except ImportError:
     CV2_AVAILABLE = False
-    print("⚠️ OpenCV not installed. Install with: pip install opencv-python")
+    logger.warning("OpenCV not installed. Install with: pip install opencv-python")
 
 try:
     import requests
     REQUESTS_AVAILABLE = True
 except ImportError:
     REQUESTS_AVAILABLE = False
-    print("⚠️ Requests not installed. Install with: pip install requests")
+    logger.warning("Requests not installed. Install with: pip install requests")
 
 
 def autodetect_source_type(url: str) -> str:
@@ -71,14 +75,16 @@ def autodetect_source_type(url: str) -> str:
 class SimpleCameraFeed:
     """Simple camera feed for quick alpha testing"""
     
-    def __init__(self, source_type='placeholder', source_url=None):
+    def __init__(self, source_type='placeholder', source_url=None, extraction_pattern_type='auto', extraction_pattern_value=None):
         if source_type in [None, '', 'auto', 'autodetect']:
             self.source_type = autodetect_source_type(source_url)
-            print(f"ℹ️ Auto-detected source type: {self.source_type}")
+            logger.debug(f"Auto-detected source type: {self.source_type}")
         else:
             self.source_type = source_type
             
         self.source_url = source_url
+        self.extraction_pattern_type = extraction_pattern_type or 'auto'
+        self.extraction_pattern_value = extraction_pattern_value
         self.current_frame = None
         self.last_update = None
         self.is_running = False
@@ -149,11 +155,11 @@ class SimpleCameraFeed:
     def _start_http_stream(self):
         """Start HTTP MJPEG stream in background thread"""
         if not CV2_AVAILABLE or not REQUESTS_AVAILABLE:
-            print("❌ OpenCV and Requests required for HTTP streams")
+            logger.error("OpenCV and Requests required for HTTP streams")
             self._create_placeholder()
             return
         
-        print(f"📹 Starting HTTP stream: {self.source_url}")
+        logger.debug(f"Starting HTTP stream: {self.source_url}")
         self.is_running = True
         self.thread = threading.Thread(target=self._http_stream_loop, daemon=True)
         self.thread.start()
@@ -185,14 +191,14 @@ class SimpleCameraFeed:
                             self.last_update = datetime.now()
                 
             except Exception as e:
-                print(f"❌ HTTP stream error: {e}")
+                logger.error(f"HTTP stream error: {e}")
                 self._create_placeholder()
                 time.sleep(5)  # Wait before retry
     
     def _start_webcam(self):
         """Start webcam capture"""
         if not CV2_AVAILABLE:
-            print("❌ OpenCV required for webcam")
+            logger.error("OpenCV required for webcam")
             self._create_placeholder()
             return
         
@@ -200,11 +206,11 @@ class SimpleCameraFeed:
         self.cap = cv2.VideoCapture(camera_index)
         
         if not self.cap.isOpened():
-            print(f"❌ Failed to open webcam {camera_index}")
+            logger.error(f"Failed to open webcam {camera_index}")
             self._create_placeholder()
             return
         
-        print(f"✅ Webcam {camera_index} opened")
+        logger.debug(f"Webcam {camera_index} opened")
         self.is_running = True
         self.thread = threading.Thread(target=self._capture_loop, daemon=True)
         self.thread.start()
@@ -212,18 +218,18 @@ class SimpleCameraFeed:
     def _start_rtsp(self):
         """Start RTSP stream"""
         if not CV2_AVAILABLE:
-            print("❌ OpenCV required for RTSP")
+            logger.error("OpenCV required for RTSP")
             self._create_placeholder()
             return
         
         self.cap = cv2.VideoCapture(self.source_url)
         
         if not self.cap.isOpened():
-            print(f"❌ Failed to open RTSP stream: {self.source_url}")
+            logger.error(f"Failed to open RTSP stream: {self.source_url}")
             self._create_placeholder()
             return
         
-        print(f"✅ RTSP stream opened")
+        logger.debug(f"RTSP stream opened")
         self.is_running = True
         self.thread = threading.Thread(target=self._capture_loop, daemon=True)
         self.thread.start()
@@ -231,26 +237,156 @@ class SimpleCameraFeed:
     def _start_video_file(self):
         """Start video file playback"""
         if not CV2_AVAILABLE:
-            print("❌ OpenCV required for video files")
+            logger.error("OpenCV required for video files")
             self._create_placeholder()
             return
         
         self.cap = cv2.VideoCapture(self.source_url)
         
         if not self.cap.isOpened():
-            print(f"❌ Failed to open video file: {self.source_url}")
+            logger.error(f"Failed to open video file: {self.source_url}")
             self._create_placeholder()
             return
             
-        print(f"✅ Video file opened: {self.source_url}")
+        logger.debug(f"Video file opened: {self.source_url}")
         self.is_running = True
         self.thread = threading.Thread(target=self._capture_loop, daemon=True)
         self.thread.start()
     
+    def _extract_with_custom_pattern(self, content, headers):
+        """Extract image URL using custom user-defined pattern"""
+        import re
+        from urllib.parse import urlparse, urljoin
+        
+        try:
+            if self.extraction_pattern_type == 'first_img':
+                # Extract first <img> tag
+                pattern = r'<img[^>]+src=["\']([^"\']+(]["\']'
+                match = re.search(pattern, content, re.IGNORECASE)
+                if match:
+                    img_url = match.group(1)
+                    logger.debug(f"Found first img tag: {img_url}")
+                    return self._process_extracted_url(img_url, headers)
+            
+            elif self.extraction_pattern_type == 'img_by_id':
+                # Extract <img> with specific id
+                if not self.extraction_pattern_value:
+                    logger.error("No ID value provided for img_by_id pattern")
+                    return None
+                
+                pattern = rf'<img[^>]+id=["\']({re.escape(self.extraction_pattern_value)})["\'][^>]+src=["\']([^"\']+)["\']'
+                match = re.search(pattern, content, re.IGNORECASE)
+                if not match:
+                    # Try reverse order (src before id)
+                    pattern = rf'<img[^>]+src=["\']([^"\']+)["\'][^>]+id=["\']({re.escape(self.extraction_pattern_value)})["\']'
+                    match = re.search(pattern, content, re.IGNORECASE)
+                    if match:
+                        img_url = match.group(1)
+                        logger.debug(f"Found img with id='{self.extraction_pattern_value}': {img_url}")
+                        return self._process_extracted_url(img_url, headers)
+                else:
+                    img_url = match.group(2)
+                    logger.debug(f"Found img with id='{self.extraction_pattern_value}': {img_url}")
+                    return self._process_extracted_url(img_url, headers)
+            
+            elif self.extraction_pattern_type == 'img_by_class':
+                # Extract <img> with specific class
+                if not self.extraction_pattern_value:
+                    logger.error("No class value provided for img_by_class pattern")
+                    return None
+                
+                # Match class attribute containing the value (handles multiple classes)
+                pattern = rf'<img[^>]+class=["\']([^"\']*\b{re.escape(self.extraction_pattern_value)}\b[^"\']*)["\']\s[^>]+src=["\']([^"\']+)["\']'
+                match = re.search(pattern, content, re.IGNORECASE)
+                if not match:
+                    # Try reverse order (src before class)
+                    pattern = rf'<img[^>]+src=["\']([^"\']+)["\'][^>]+class=["\']([^"\']*\b{re.escape(self.extraction_pattern_value)}\b[^"\']*)["\']\s*>'
+                    match = re.search(pattern, content, re.IGNORECASE)
+                    if match:
+                        img_url = match.group(1)
+                        logger.debug(f"Found img with class='{self.extraction_pattern_value}': {img_url}")
+                        return self._process_extracted_url(img_url, headers)
+                else:
+                    img_url = match.group(2)
+                    logger.debug(f"Found img with class='{self.extraction_pattern_value}': {img_url}")
+                    return self._process_extracted_url(img_url, headers)
+            
+            elif self.extraction_pattern_type == 'video_by_id':
+                # Extract <video> tag with specific id
+                if not self.extraction_pattern_value:
+                    logger.error("No ID value provided for video_by_id pattern")
+                    return None
+                
+                pattern = rf'<video[^>]+id=["\']({re.escape(self.extraction_pattern_value)})["\'][^>]*>.*?<source[^>]+src=["\']([^"\']+)["\']'
+                match = re.search(pattern, content, re.IGNORECASE | re.DOTALL)
+                if match:
+                    video_url = match.group(2)
+                    logger.debug(f"Found video with id='{self.extraction_pattern_value}': {video_url}")
+                    return self._process_extracted_url(video_url, headers)
+            
+            logger.error(f"No match found for pattern type: {self.extraction_pattern_type}")
+            return None
+            
+        except Exception as e:
+            logger.error(f"Custom pattern extraction error: {e}")
+            return None
+    
+    def _process_extracted_url(self, url, headers):
+        """Process and validate an extracted URL"""
+        from urllib.parse import urlparse, urljoin
+        
+        # Convert relative URLs to absolute
+        if url.startswith('//'):
+            url = 'https:' + url
+        elif url.startswith('/'):
+            base_url = f"{urlparse(self.source_url).scheme}://{urlparse(self.source_url).netloc}"
+            url = urljoin(base_url, url)
+        elif not url.startswith('http'):
+            url = urljoin(self.source_url, url)
+        
+        # Skip data URLs
+        if url.startswith('data:'):
+            logger.debug("Skipping data URL")
+            return None
+        
+        # Test if URL is accessible
+        try:
+            test_response = requests.head(url, headers=headers, timeout=5, allow_redirects=True)
+            content_type = test_response.headers.get('Content-Type', '').lower()
+            
+            if test_response.status_code == 200 and ('image' in content_type or 'video' in content_type):
+                logger.debug(f"Validated extracted URL: {url}")
+                self.source_url = url
+                self.source_type = autodetect_source_type(url)
+                
+                if self.source_type == 'http_mjpeg':
+                    self._start_http_stream()
+                elif self.source_type == 'http_snapshot':
+                    pass  # On-demand fetching
+                return url
+            
+            elif test_response.status_code in [401, 403]:
+                logger.warning(f"URL requires authentication (status {test_response.status_code})")
+                logger.debug("Using webpage screenshot mode (1 FPS)")
+                self.source_type = 'webpage_screenshot'
+                self.extracted_img_url = url
+                return url
+            
+            else:
+                logger.warning(f"URL validation failed: status={test_response.status_code}, content_type={content_type}")
+                return None
+        
+        except requests.exceptions.RequestException as e:
+            logger.warning(f"Could not test URL: {e}")
+            # Try using it anyway with webpage screenshot mode
+            self.source_type = 'webpage_screenshot'
+            self.extracted_img_url = url
+            return url
+    
     def _extract_stream_url(self):
         """Extract actual stream URL from website pages like insecam.org"""
         if not REQUESTS_AVAILABLE:
-            print("❌ Requests library required for website extraction")
+            logger.error("Requests library required for website extraction")
             self._create_placeholder()
             return
         
@@ -266,6 +402,15 @@ class SimpleCameraFeed:
                 # Try to find MJPEG or image URLs in the page
                 import re
                 
+                # CUSTOM PATTERN EXTRACTION
+                if self.extraction_pattern_type and self.extraction_pattern_type != 'auto':
+                    logger.debug(f"Using custom extraction pattern: {self.extraction_pattern_type}")
+                    extracted_url = self._extract_with_custom_pattern(content, headers)
+                    if extracted_url:
+                        return
+                    else:
+                        logger.warning("Custom pattern failed, falling back to auto-detection")
+                
                 # For insecam.org specifically, look for the main camera image
                 if 'insecam' in self.source_url.lower():
                     # PRIORITY 1: Look for img tag with id="image0" - this is the standard main feed for insecam
@@ -275,27 +420,27 @@ class SimpleCameraFeed:
                     
                     if image0_match:
                         extracted_url = image0_match.group(1)
-                        print(f"✅ Found insecam main feed (image0): {extracted_url}")
+                        logger.debug(f"Found insecam main feed (image0): {extracted_url}")
                         
                         # Test accessibility
                         try:
                             test_response = requests.head(extracted_url, headers=headers, timeout=5, allow_redirects=True)
                             if test_response.status_code in [401, 403]:
-                                print(f"⚠️ Main feed requires authentication (status {test_response.status_code})")
-                                print("📸 Using webpage screenshot mode (1 FPS) - this is normal for secured feeds")
+                                logger.warning(f"Main feed requires authentication (status {test_response.status_code})")
+                                logger.debug("Using webpage screenshot mode (1 FPS) - this is normal for secured feeds")
                                 self.source_type = 'webpage_screenshot'
                                 self.extracted_img_url = extracted_url
                                 return
                             elif test_response.status_code >= 400:
-                                print(f"⚠️ Main feed returned error {test_response.status_code}")
+                                logger.warning(f"Main feed returned error {test_response.status_code}")
                             else:
                                 # Direct access works
                                 self.source_url = extracted_url
                                 self.source_type = 'http_snapshot'  # JPG snapshot
                                 return
                         except requests.exceptions.RequestException as e:
-                            print(f"⚠️ Could not test URL: {e}")
-                            print("📸 Using webpage screenshot mode (1 FPS)")
+                            logger.warning(f"Could not test URL: {e}")
+                            logger.debug("Using webpage screenshot mode (1 FPS)")
                             self.source_type = 'webpage_screenshot'
                             self.extracted_img_url = extracted_url
                             return
@@ -312,29 +457,29 @@ class SimpleCameraFeed:
                         for match in matches:
                             # Strict filtering for insecam - must NOT contain preview/thumbnail indicators
                             if any(bad in match.lower() for bad in ['thumb', 'preview', 'small', 'mini', 'icon', 'logo', 'related', 'recommend', 'similar', 'other']):
-                                print(f"⏭️ Skipping preview/thumbnail URL: {match}")
+                                logger.debug(f"Skipping preview/thumbnail URL: {match}")
                                 continue
                             
                             # Must be a substantial image (check URL structure)
                             if 'image' in match.lower() or 'current' in match.lower() or 'live' in match.lower():
                                 extracted_url = match
-                                print(f"✅ Extracted main camera URL from insecam: {extracted_url}")
+                                logger.debug(f"Extracted main camera URL from insecam: {extracted_url}")
                                 
                                 # Test accessibility before committing
                                 try:
                                     test_response = requests.head(extracted_url, headers=headers, timeout=5, allow_redirects=True)
                                     if test_response.status_code in [401, 403]:
-                                        print(f"⚠️ Main camera URL requires authentication (status {test_response.status_code})")
-                                        print("📸 Falling back to webpage screenshot mode (1 FPS)")
+                                        logger.warning(f"Main camera URL requires authentication (status {test_response.status_code})")
+                                        logger.debug("Falling back to webpage screenshot mode (1 FPS)")
                                         self.source_type = 'webpage_screenshot'
                                         self.extracted_img_url = extracted_url
                                         return
                                     elif test_response.status_code >= 400:
-                                        print(f"⚠️ Main camera URL returned error {test_response.status_code}, trying next match...")
+                                        logger.warning(f"Main camera URL returned error {test_response.status_code}, trying next match...")
                                         continue
                                 except requests.exceptions.RequestException as e:
-                                    print(f"⚠️ Could not test URL accessibility: {e}")
-                                    print("📸 Using webpage screenshot mode as fallback (1 FPS)")
+                                    logger.warning(f"Could not test URL accessibility: {e}")
+                                    logger.debug("Using webpage screenshot mode as fallback (1 FPS)")
                                     self.source_type = 'webpage_screenshot'
                                     self.extracted_img_url = extracted_url
                                     return
@@ -348,7 +493,7 @@ class SimpleCameraFeed:
                                     pass  # On-demand fetching
                                 return
                             extracted_url = matches[0]
-                            print(f"✅ Extracted main camera URL from insecam: {extracted_url}")
+                            logger.debug(f"Extracted main camera URL from insecam: {extracted_url}")
                             self.source_url = extracted_url
                             self.source_type = autodetect_source_type(extracted_url)
                             
@@ -389,7 +534,7 @@ class SimpleCameraFeed:
                         # Strict filtering - skip if URL contains any secondary feed indicators
                         match_lower = match.lower()
                         if any(indicator in match_lower for indicator in secondary_indicators):
-                            print(f"⏭️ Skipping secondary feed URL: {match}")
+                            logger.debug(f"Skipping secondary feed URL: {match}")
                             continue
                         
                         # Additional check: if it's a generic jpg, it should be in a main content area
@@ -401,7 +546,7 @@ class SimpleCameraFeed:
                             if size_match:
                                 width, height = int(size_match.group(1)), int(size_match.group(2))
                                 if width < 300 or height < 200:  # Too small to be main feed
-                                    print(f"⏭️ Skipping small image ({width}x{height}): {match}")
+                                    logger.debug(f"Skipping small image ({width}x{height}): {match}")
                                     continue
                         
                         all_matches.append((match, priority))
@@ -413,25 +558,25 @@ class SimpleCameraFeed:
                     # Try each URL in priority order until we find one that works
                     for extracted_url, priority in all_matches:
                         extracted_url = extracted_url.split('"')[0].split("'")[0]
-                        print(f"🔍 Testing extracted URL: {extracted_url} (priority: {priority})")
+                        logger.debug(f"Testing extracted URL: {extracted_url} (priority: {priority})")
                         
                         # Test if the URL is accessible (not blocked by auth)
                         try:
                             test_response = requests.head(extracted_url, headers=headers, timeout=5, allow_redirects=True)
                             
                             if test_response.status_code in [401, 403]:
-                                print(f"⚠️ URL requires authentication (status {test_response.status_code})")
+                                logger.warning(f"URL requires authentication (status {test_response.status_code})")
                                 # Don't give up yet - save this as fallback and try next URL
                                 if not hasattr(self, 'fallback_url'):
                                     self.fallback_url = extracted_url
                                 continue
                             
                             elif test_response.status_code >= 400:
-                                print(f"⚠️ URL returned error {test_response.status_code}, trying next...")
+                                logger.warning(f"URL returned error {test_response.status_code}, trying next...")
                                 continue
                             
                             # Success! This URL is accessible
-                            print(f"✅ Found accessible stream URL: {extracted_url}")
+                            logger.debug(f"Found accessible stream URL: {extracted_url}")
                             self.source_url = extracted_url
                             
                             # Re-detect the type for the extracted URL
@@ -445,7 +590,7 @@ class SimpleCameraFeed:
                             return
                             
                         except requests.exceptions.RequestException as e:
-                            print(f"⚠️ Could not test URL: {e}")
+                            logger.warning(f"Could not test URL: {e}")
                             # Save as fallback and continue to next URL
                             if not hasattr(self, 'fallback_url'):
                                 self.fallback_url = extracted_url
@@ -454,19 +599,19 @@ class SimpleCameraFeed:
                     # If we get here, no URLs were directly accessible
                     # Use the fallback URL (first authenticated one) if we found one
                     if hasattr(self, 'fallback_url'):
-                        print("📸 No direct access URLs found, using webpage screenshot mode (1 FPS)")
+                        logger.debug("No direct access URLs found, using webpage screenshot mode (1 FPS)")
                         self.source_type = 'webpage_screenshot'
                         self.extracted_img_url = self.fallback_url
                         return
                 
-                print("⚠️ Could not extract stream URL from page, using page as snapshot source")
+                logger.warning("Could not extract stream URL from page, using page as snapshot source")
                 self.source_type = 'http_snapshot'
             else:
-                print(f"❌ Failed to fetch page: {response.status_code}")
+                logger.error(f"Failed to fetch page: {response.status_code}")
                 self._create_placeholder()
                 
         except Exception as e:
-            print(f"❌ Stream extraction error: {e}")
+            logger.error(f"Stream extraction error: {e}")
             self._create_placeholder()
     
     def _capture_loop(self):
@@ -479,7 +624,7 @@ class SimpleCameraFeed:
                         self.current_frame = frame
                         self.last_update = datetime.now()
                     else:
-                        print("⚠️ Failed to read frame")
+                        logger.warning("Failed to read frame")
                         time.sleep(1)
                 else:
                     break
@@ -487,7 +632,7 @@ class SimpleCameraFeed:
                 time.sleep(0.033)  # ~30 FPS
                 
             except Exception as e:
-                print(f"❌ Capture error: {e}")
+                logger.error(f"Capture error: {e}")
                 time.sleep(1)
     
     def _fetch_http_snapshot(self):
@@ -507,13 +652,13 @@ class SimpleCameraFeed:
                 if frame is not None:
                     return frame
                 else:
-                    print("⚠️ Failed to decode image from response")
+                    logger.warning("Failed to decode image from response")
             elif response.status_code in [401, 403]:
-                print(f"⚠️ Authentication required (status {response.status_code}), trying fallback...")
+                logger.warning(f"Authentication required (status {response.status_code}), trying fallback...")
                 # Try webpage screenshot fallback
                 return self._fetch_webpage_screenshot()
         except Exception as e:
-            print(f"❌ HTTP snapshot error: {e}")
+            logger.error(f"HTTP snapshot error: {e}")
         return None
     
     def _fetch_webpage_screenshot(self):
@@ -531,7 +676,7 @@ class SimpleCameraFeed:
             
             # If we have an extracted image URL, try to fetch it with the page as referrer
             if hasattr(self, 'extracted_img_url'):
-                print(f"📸 Fetching image with referrer: {self.extracted_img_url}")
+                logger.debug(f"Fetching image with referrer: {self.extracted_img_url}")
                 response = requests.get(self.extracted_img_url, headers=headers, timeout=10, allow_redirects=True)
                 if response.status_code == 200:
                     img_array = np.frombuffer(response.content, dtype=np.uint8)
@@ -554,11 +699,11 @@ class SimpleCameraFeed:
                         img_array = np.frombuffer(img_response.content, dtype=np.uint8)
                         frame = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
                         if frame is not None:
-                            print("✅ Successfully fetched image via session")
+                            logger.debug("Successfully fetched image via session")
                             return frame
             
         except Exception as e:
-            print(f"❌ Webpage screenshot error: {e}")
+            logger.error(f"Webpage screenshot error: {e}")
         
         return None
     
@@ -583,7 +728,7 @@ class SimpleCameraFeed:
             frame = self.current_frame
             
             if frame is None:
-                print("⚠️ No frame available, creating placeholder")
+                logger.warning("No frame available, creating placeholder")
                 self._create_placeholder()
                 frame = self.current_frame
             
@@ -604,7 +749,7 @@ class SimpleCameraFeed:
             
             return frame
         except Exception as e:
-            print(f"❌ Error in get_frame: {e}")
+            logger.error(f"Error in get_frame: {e}")
             import traceback
             traceback.print_exc()
             # Create placeholder on error
@@ -634,7 +779,7 @@ class SimpleCameraFeed:
                 return False
             return True
         except Exception as e:
-            print(f"Error saving frame: {e}")
+            logger.error(f"Error saving frame: {e}")
             return False
     
     def get_info(self):
@@ -657,7 +802,7 @@ class SimpleCameraFeed:
     
     def stop(self):
         """Cleanup"""
-        print(f"🛑 Stopping camera feed: {self.source_type}")
+        logger.debug(f"Stopping camera feed: {self.source_type}")
         self.is_running = False
         
         # Clear current frame
@@ -677,10 +822,10 @@ class SimpleCameraFeed:
                 pass
             delattr(self, 'cap')
         
-        print("✅ Camera stopped and cleaned up")
+        logger.debug("Camera stopped and cleaned up")
 
 
-def create_camera_feed(source_type='placeholder', source_url=None):
+def create_camera_feed(source_type='placeholder', source_url=None, extraction_pattern_type='auto', extraction_pattern_value=None):
     """
     Create a camera feed
     
@@ -695,21 +840,32 @@ def create_camera_feed(source_type='placeholder', source_url=None):
         - '' or 'auto': Auto-detect from URL
     
     source_url: Provide your own URL/path or website page
-    """
-    print(f"📹 Creating camera feed. Type: '{source_type}', URL: '{source_url}'")
     
-    return SimpleCameraFeed(source_type, source_url)
+    extraction_pattern_type: For website embeds, how to extract the image/video
+        - 'auto': Smart auto-detection (default)
+        - 'first_img': Use first <img> tag found
+        - 'img_by_id': Use <img> tag with specific id
+        - 'img_by_class': Use <img> tag with specific class
+        - 'video_by_id': Use <video> tag with specific id
+    
+    extraction_pattern_value: ID or class name when using img_by_id, img_by_class, or video_by_id
+    """
+    logger.debug(f"Creating camera feed. Type: '{source_type}', URL: '{source_url}'")
+    if extraction_pattern_type != 'auto':
+        logger.debug(f"   Custom pattern: {extraction_pattern_type} = '{extraction_pattern_value}'")
+    
+    return SimpleCameraFeed(source_type, source_url, extraction_pattern_type, extraction_pattern_value)
 
 
 # Test
 if __name__ == '__main__':
-    print("🎥 Testing Camera Manager\n")
+    logger.debug("Testing Camera Manager\n")
     
     camera = create_camera_feed('placeholder')
-    print(f"Camera info: {camera.get_info()}")
+    logger.debug(f"Camera info: {camera.get_info()}")
     
     frame = camera.get_frame('base64')
-    print(f"Frame type: {type(frame)}")
-    print(f"Frame starts with: {frame[:50] if isinstance(frame, str) else 'N/A'}")
+    logger.debug(f"Frame type: {type(frame)}")
+    logger.debug(f"Frame starts with: {frame[:50] if isinstance(frame, str) else 'N/A'}")
     
-    print("\n✅ Camera manager working!")
+    logger.debug("\nCamera manager working!")
