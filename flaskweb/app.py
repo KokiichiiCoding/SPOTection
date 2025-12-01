@@ -1,6 +1,10 @@
 from flask import Flask, render_template, jsonify, request, send_from_directory, session, redirect, url_for
 from flask_cors import CORS
 from flask_limiter import Limiter
+<<<<<<< Updated upstream
+=======
+from flask_limiter.util import get_remote_address
+>>>>>>> Stashed changes
 import sys
 import os
 from functools import wraps
@@ -53,6 +57,14 @@ main_config = load_main_config()
 
 app = Flask(__name__)
 CORS(app)
+
+# Initialize rate limiter
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"],
+    storage_uri="memory://",
+)
 
 # Secret key for sessions (generate a random one if not in config)
 app.config['SECRET_KEY'] = main_config.get('secret_key', secrets.token_hex(32))
@@ -688,7 +700,11 @@ def login_required(f):
     return decorated_function
 
 @app.route('/login', methods=['GET', 'POST'])
+<<<<<<< Updated upstream
 @limiter.limit("5 per minute")
+=======
+@limiter.limit("5 per minute")  # Prevent brute force attacks
+>>>>>>> Stashed changes
 def login():
     """Login page"""
     if request.method == 'POST':
@@ -740,6 +756,7 @@ def test_multilot():
 
 # API Endpoints
 @app.route('/api/parking/status', methods=['GET'])
+@limiter.limit("30 per minute")  # Reasonable limit for status checks
 def get_parking_status():
     """Get current parking lot status - redirects to default lot with fresh config data"""
     # Reload calibration data from config to ensure sync
@@ -784,6 +801,7 @@ def manage_space(space_id):
         return jsonify({'error': 'Space not found'}), 404
 
 @app.route('/api/lot/<string:lot_id>/calibration', methods=['GET', 'POST'])
+@limiter.limit("10 per minute")  # Limit calibration updates
 def lot_calibration(lot_id):
     """Get or set calibration for a specific lot"""
     # POST requires authentication
@@ -1083,6 +1101,7 @@ def config():
         return jsonify({'success': True, 'config': existing_config})
 
 @app.route('/api/camera/feed', methods=['GET'])
+@limiter.limit("60 per minute")  # Allow frequent camera feed requests
 def camera_feed():
     """Get latest camera frame for a specific lot or default camera"""
     global camera
