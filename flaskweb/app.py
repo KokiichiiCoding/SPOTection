@@ -1,16 +1,11 @@
 from flask import Flask, render_template, jsonify, request, send_from_directory, session, redirect, url_for
 from flask_cors import CORS
 from flask_limiter import Limiter
-<<<<<<< Updated upstream
-=======
 from flask_limiter.util import get_remote_address
->>>>>>> Stashed changes
 import sys
 import os
 from functools import wraps
 import secrets
-
-limiter = Limiter(app, key_func=lambda: request.remote_addr)
 
 # Add parent directory to path to allow imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -58,16 +53,17 @@ main_config = load_main_config()
 app = Flask(__name__)
 CORS(app)
 
+# Secret key for sessions (generate a random one if not in config)
+app.config['SECRET_KEY'] = main_config.get('secret_key', secrets.token_hex(32))
+
 # Initialize rate limiter
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
     default_limits=["200 per day", "50 per hour"],
     storage_uri="memory://",
+    strategy="fixed-window"
 )
-
-# Secret key for sessions (generate a random one if not in config)
-app.config['SECRET_KEY'] = main_config.get('secret_key', secrets.token_hex(32))
 
 # Admin credentials (load from config or use defaults - should be changed in production!)
 ADMIN_USERNAME = main_config.get('admin_username', 'admin')
@@ -700,11 +696,7 @@ def login_required(f):
     return decorated_function
 
 @app.route('/login', methods=['GET', 'POST'])
-<<<<<<< Updated upstream
-@limiter.limit("5 per minute")
-=======
-@limiter.limit("5 per minute")  # Prevent brute force attacks
->>>>>>> Stashed changes
+@limiter.limit("10 per minute")  # Prevent brute force attacks
 def login():
     """Login page"""
     if request.method == 'POST':
@@ -756,7 +748,7 @@ def test_multilot():
 
 # API Endpoints
 @app.route('/api/parking/status', methods=['GET'])
-@limiter.limit("30 per minute")  # Reasonable limit for status checks
+@limiter.limit("60 per minute")  # Higher limit for live status updates
 def get_parking_status():
     """Get current parking lot status - redirects to default lot with fresh config data"""
     # Reload calibration data from config to ensure sync
@@ -801,7 +793,7 @@ def manage_space(space_id):
         return jsonify({'error': 'Space not found'}), 404
 
 @app.route('/api/lot/<string:lot_id>/calibration', methods=['GET', 'POST'])
-@limiter.limit("10 per minute")  # Limit calibration updates
+@limiter.limit("30 per minute")  # Moderate limit for calibration operations
 def lot_calibration(lot_id):
     """Get or set calibration for a specific lot"""
     # POST requires authentication
@@ -1101,7 +1093,7 @@ def config():
         return jsonify({'success': True, 'config': existing_config})
 
 @app.route('/api/camera/feed', methods=['GET'])
-@limiter.limit("60 per minute")  # Allow frequent camera feed requests
+@limiter.limit("60 per minute")  # Higher limit for live camera feed
 def camera_feed():
     """Get latest camera frame for a specific lot or default camera"""
     global camera
@@ -1217,12 +1209,14 @@ def control_detection():
         return jsonify({'error': 'Invalid action. Use "start" or "stop"'}), 400
 
 @app.route('/api/detection/overlay', methods=['GET'])
+@limiter.limit("60 per minute")  # Higher limit for live overlay updates
 def get_detection_overlay():
     """Get detection overlay data with spot status and vehicle information (default lot)"""
     lot_id = main_config.get('default_lot_id', 'LOT-001')
     return get_lot_detection_overlay(lot_id)
 
 @app.route('/api/lot/<lot_id>/detection/overlay', methods=['GET'])
+@limiter.limit("60 per minute")  # Higher limit for live overlay updates
 def get_lot_detection_overlay(lot_id):
     """Get detection overlay data for a specific lot with spot status and vehicle information"""
     try:
@@ -1413,6 +1407,7 @@ def debug_calibration():
 
 @app.route('/api/camera/config', methods=['POST'])
 @login_required
+@limiter.limit("10 per minute")  # Lower limit for configuration changes
 def set_camera_config():
     """Set new camera configuration"""
     global camera
@@ -1484,6 +1479,14 @@ def not_found(error):
 @app.errorhandler(500)
 def internal_error(error):
     return jsonify({'error': 'Internal server error'}), 500
+
+@app.errorhandler(429)
+def ratelimit_handler(e):
+    """Handle rate limit exceeded errors"""
+    return jsonify({
+        'error': 'Rate limit exceeded',
+        'message': str(e.description)
+    }), 429
 
 # ============================================
 # MULTI-LOT MANAGEMENT API
@@ -1793,6 +1796,7 @@ if __name__ == '__main__':
 
 # Database Routes
 @app.route('/api/lot/<string:lot_public_id>/status')
+@limiter.limit("60 per minute")  # Higher limit for live status updates
 def get_lot_status(lot_public_id):
     """Endpoint that generates a LotStatus object based on the latest data from the DB."""
     try:
