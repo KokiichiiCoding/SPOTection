@@ -6,7 +6,7 @@ The SPOTection calibration system allows you to define parking spot boundaries o
 ## How Calibration Works
 
 ### 1. **Web-Based Calibration** (Recommended)
-Access the admin panel at `http://localhost:5000/admin`
+Access the admin panel at `http://{Your Domain}/admin`
 
 **Steps:**
 1. View the camera feed in the calibration canvas
@@ -54,7 +54,7 @@ ParkingLot (public_id: LOT-001)
 
 ## Calibration Status Indicator
 
-The admin page now shows a status box:
+The admin page shows a status box:
 
 - **✅ Green:** Calibration synced - database matches config
 - **⚠️ Yellow:** Out of sync - re-save calibration to fix
@@ -82,7 +82,7 @@ Click "🔄 Check Sync Status" to refresh the indicator.
 #### Option 2: Use the Admin Interface
 If calibration exists in `config.json` but not in database:
 
-1. Go to `http://localhost:5000/admin`
+1. Go to `http://{Your Domain}/admin`
 2. Click "💾 Save All" to sync the existing calibration data
 3. Check the status indicator turns green
 
@@ -96,7 +96,7 @@ This will:
 Check the calibration status API:
 
 ```
-GET http://localhost:5000/api/calibration/status
+GET http://{Your Domain}/api/calibration/status
 ```
 
 This will show:
@@ -144,7 +144,7 @@ Should show array of spots with polygon coordinates.
 
 ### 2. Check Database via API
 ```bash
-curl http://localhost:5000/api/lot/LOT-001/status
+curl http://{Your Domain}/api/lot/LOT-001/status
 ```
 
 Should show:
@@ -153,7 +153,7 @@ Should show:
 - Current status of all spots
 
 ### 3. Check API Endpoint
-Visit: `http://localhost:5000/api/calibration/status`
+Visit: `http://{Your Domain}/api/calibration/status`
 
 Should return:
 ```json
@@ -167,7 +167,7 @@ Should return:
 ```
 
 ### 4. Check Lot Status
-Visit: `http://localhost:5000/api/lot/LOT-001/status`
+Visit: `http://{Your Domain}/api/lot/LOT-001/status`
 
 Should show all your spots with status data.
 
@@ -211,13 +211,13 @@ Returns current status of all spots in the lot.
 **Check:**
 1. Is the Flask application running? `python -m flask --app flaskweb.app run`
 2. Does config.json have `default_lot_id` set correctly?
-3. Check API endpoint: `http://localhost:5000/api/calibration/status` to verify spots exist
+3. Check API endpoint: `http://{Your Domain}/api/calibration/status` to verify spots exist
 
 ### Issue: Old spots still appearing after re-calibration
 **Fix:** The system automatically removes old spots when you save new calibration. If they persist:
 1. Check you're viewing the correct lot in the frontend
 2. Clear browser cache
-3. Verify with: `http://localhost:5000/api/calibration/status`
+3. Verify with: `http://{Your Domain}/api/calibration/status`
 
 ## Best Practices
 
@@ -234,10 +234,10 @@ Returns current status of all spots in the lot.
 python -c "import json; print(len(json.load(open('config.json')).get('calibration_data', []))), 'spots in config'"
 
 # Check sync status via API
-curl http://localhost:5000/api/calibration/status
+curl http://{Your Domain}/api/calibration/status
 
 # View lot status
-curl http://localhost:5000/api/lot/LOT-001/status
+curl http://{Your Domain}/api/lot/LOT-001/status
 
 # Start the application
 python -m flask --app flaskweb.app run --debug

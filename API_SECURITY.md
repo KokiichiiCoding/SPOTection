@@ -12,13 +12,6 @@ SPOTection's REST API includes authentication protection on all endpoints that c
 - Session cookie maintained automatically by browser
 - Logout via `/logout`
 
-### For Programmatic Access
-- API endpoints requiring authentication will return `401 Unauthorized` without valid session
-- To use protected endpoints programmatically:
-  1. Send POST to `/login` with credentials to establish session
-  2. Include session cookie in subsequent requests
-  3. Or implement API key authentication (future enhancement)
-
 ---
 
 ## Protected Endpoints (Require Authentication)
