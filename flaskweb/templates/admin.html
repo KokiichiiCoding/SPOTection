@@ -950,6 +950,12 @@
                     status: 'available'  // Default status, will be updated by detection
                 }));
                 
+                console.log('Saving calibration data:', {
+                    lot: currentLotId,
+                    spaces: savedSpaces.length,
+                    data: calibrationData
+                });
+                
                 const response = await fetch(`/api/lot/${currentLotId}/calibration`, {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -960,7 +966,20 @@
                     })
                 });
                 
-                const result = await response.json();
+                console.log('Response status:', response.status);
+                console.log('Response headers:', response.headers);
+                
+                let result;
+                try {
+                    result = await response.json();
+                } catch (parseError) {
+                    const responseText = await response.text();
+                    console.error('Failed to parse JSON response:', responseText);
+                    alert(`❌ Server returned invalid JSON (status ${response.status}):\\n\\n${responseText.substring(0, 500)}`);
+                    return;
+                }
+                
+                console.log('Save result:', result);
                 
                 if (result.success) {
                     // Check calibration sync status for this lot
@@ -981,16 +1000,17 @@
                     message += `\\n\\nGo to the Live View page to see your calibrated spaces.`;
                     
                     alert(message);
-                    console.log('Save result:', result);
                     console.log('Sync status:', statusData);
                     
                     // Update calibration status display
                     await checkCalibrationStatus();
                 } else {
-                    alert('❌ Error saving calibration data.');
+                    const errorMsg = result.error || result.message || 'Unknown error';
+                    alert(`❌ Error saving calibration data:\\n\\n${errorMsg}`);
+                    console.error('Save failed:', result);
                 }
             } catch (error) {
-                alert('❌ Error: ' + error.message);
+                alert(`❌ Error: ${error.message}`);
                 console.error('Save error:', error);
             }
         }
