@@ -1,3 +1,0 @@
-# Scripts
-
-Utility scripts

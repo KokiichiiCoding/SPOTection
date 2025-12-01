@@ -3,7 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Live Parking View - Parking Detection System</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>SPOTection - Real-Time Parking Detection</title>
     <link rel="stylesheet" href="/static/css/style.css">
     <style>
         .live-view-container {
@@ -175,9 +178,7 @@
         <div class="nav-container">
             <h1>🚗 Parking Detection System</h1>
             <div class="nav-links">
-                <a href="/">Dashboard</a>
-                <a href="/live" class="active">Live View</a>
-                <a href="/analytics">Analytics</a>
+                <a href="/" class="active">Dashboard</a>
                 <a href="/admin">Admin</a>
             </div>
         </div>
@@ -185,8 +186,18 @@
 
     <div class="container">
         <div class="header">
-            <h2>Live Parking Detection</h2>
-            <p>Real-time camera feed with AI-powered parking space detection</p>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <h2>Live Parking Detection</h2>
+                    <p>Real-time camera feed with AI-powered parking space detection</p>
+                </div>
+                <div style="display: flex; gap: 0.5rem; align-items: center;">
+                    <label for="lotSelector" style="color: var(--text-secondary);">Select Lot:</label>
+                    <select id="lotSelector" class="form-control" style="width: auto;">
+                        <option value="LOT-001">LOT-001</option>
+                    </select>
+                </div>
+            </div>
         </div>
 
         <!-- Status Banner -->
@@ -281,7 +292,7 @@
                 </div>
                 <div class="legend-item">
                     <span style="color: var(--text-secondary);">
-                        📍 Spaces are highlighted in real-time as vehicles enter/exit
+                        📍 Spaces and vehicles are highlighted in real-time
                     </span>
                 </div>
             </div>
@@ -307,17 +318,14 @@
         <div class="content-section" style="margin-top: 2rem;">
             <h3>View Controls</h3>
             <div class="button-group">
-                <button onclick="toggleDetectionOverlay()" class="btn btn-primary" id="toggleOverlayBtn">
-                    👁️ Hide Detection Boxes
-                </button>
                 <button onclick="refreshFeed()" class="btn btn-secondary">
                     🔄 Refresh Feed
                 </button>
                 <button onclick="captureSnapshot()" class="btn btn-secondary">
                     📸 Capture Snapshot
                 </button>
-                <button onclick="window.location.href='/analytics'" class="btn btn-secondary">
-                    📊 View Analytics
+                <button onclick="window.location.href='/admin'" class="btn btn-secondary">
+                    ⚙️ Admin Panel
                 </button>
             </div>
         </div>
@@ -325,14 +333,38 @@
 
     <script>
         let canvas, ctx, liveFeed;
-        let showOverlay = true;
+        const showOverlay = true; // Always show overlay - cannot be toggled off
         let currentFilter = 'all';
+        let currentLotId = 'LOT-001'; // Track selected lot
+        let highlightedSpotId = null; // Track which spot is being hovered
         let detectionData = {
-            spaces: [],
+            spots: [],
+            vehicles: [],  // Add vehicles array
             available: 0,
-            occupied: 0
+            occupied: 0,
+            hasCalibration: false
         };
         let updateInterval;
+
+        // Load available lots
+        function loadAvailableLots() {
+            fetch('/api/lots')
+                .then(response => response.json())
+                .then(data => {
+                    const selector = document.getElementById('lotSelector');
+                    selector.innerHTML = '';
+                    data.lots.forEach(lot => {
+                        const option = document.createElement('option');
+                        option.value = lot.public_id;
+                        option.textContent = `${lot.public_id} - ${lot.name}`;
+                        if (lot.public_id === currentLotId) {
+                            option.selected = true;
+                        }
+                        selector.appendChild(option);
+                    });
+                })
+                .catch(error => console.error('Error loading lots:', error));
+        }
 
         // Initialize
         window.onload = function() {
@@ -340,9 +372,12 @@
             canvas = document.getElementById('detectionCanvas');
             ctx = canvas.getContext('2d');
             
+            // Load available lots
+            loadAvailableLots();
+            
             // Load initial data
             loadLiveFeed();
-            fetchParkingData();
+            fetchDetectionOverlay();  // Changed to use detection overlay
             
             // Setup resize handler
             liveFeed.onload = function() {
@@ -355,8 +390,15 @@
             // Auto-update every 2 seconds for real-time feel
             updateInterval = setInterval(() => {
                 loadLiveFeed();
-                fetchParkingData();
+                fetchDetectionOverlay();  // Changed to use detection overlay
             }, 2000);
+            
+            // Lot selector change event
+            document.getElementById('lotSelector').addEventListener('change', function(e) {
+                currentLotId = e.target.value;
+                fetchDetectionOverlay(); // Reload with new lot
+                loadLiveFeed(); // Reload camera feed for new lot
+            });
         };
 
         function resizeCanvas() {
@@ -365,12 +407,67 @@
             drawDetectionOverlay();
         }
 
+        async function fetchDetectionOverlay() {
+            try {
+                // Add timestamp to prevent caching
+                const timestamp = new Date().getTime();
+                const response = await fetch(`/api/lot/${currentLotId}/detection/overlay?t=${timestamp}`);
+                const data = await response.json();
+                
+                console.log('Detection overlay received:', data);
+                
+                detectionData.spots = data.spots || [];
+                detectionData.vehicles = data.vehicles || [];  // Store vehicles
+                detectionData.hasCalibration = data.has_calibration;
+                
+                // Calculate counts
+                detectionData.available = detectionData.spots.filter(s => s.status === 'free').length;
+                detectionData.occupied = detectionData.spots.filter(s => s.status === 'occupied').length;
+                
+                console.log(`Found ${detectionData.vehicles.length} vehicle detections`);
+                
+                // Update UI with fresh data - format to match what updateUI expects
+                updateUI({
+                    available_spaces: detectionData.available,
+                    occupied_spaces: detectionData.occupied,
+                    total_spaces: detectionData.spots.length,
+                    last_updated: data.timestamp,
+                    spaces: detectionData.spots
+                });
+                
+                drawDetectionOverlay();
+                updateSpaceGrid();
+                
+                if (!detectionData.hasCalibration) {
+                    console.warn('⚠️ No calibration data. Please calibrate at /admin');
+                }
+            } catch (error) {
+                console.error('Error fetching detection overlay:', error);
+            }
+        }
+
         async function loadLiveFeed() {
             try {
-                const response = await fetch('/api/camera/feed');
+                const lotId = currentLotId || 'LOT-001';
+                const response = await fetch(`/api/camera/feed?lot_id=${lotId}&t=${Date.now()}`);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
                 const data = await response.json();
                 
                 console.log('Camera feed response:', data); // Debug log
+                
+                if (data.error) {
+                    console.error('Camera feed error:', data.error);
+                    liveFeed.alt = `Camera Error: ${data.error}`;
+                    // Still try to show placeholder if available
+                    if (data.image_url) {
+                        liveFeed.src = data.image_url;
+                    }
+                    return;
+                }
                 
                 if (data.image_url) {
                     // Handle both base64 and regular URLs
@@ -383,6 +480,7 @@
                     }
                 } else {
                     console.error('No image_url in response');
+                    liveFeed.alt = 'No camera feed available';
                 }
                 
                 // Update FPS
@@ -396,33 +494,8 @@
                 console.error('Error loading feed:', error);
                 // Show error on page
                 liveFeed.alt = 'Error loading camera feed: ' + error.message;
-            }
-        }
-
-        async function fetchParkingData() {
-            try {
-                const response = await fetch('/api/parking/status');
-                const data = await response.json();
-                
-                console.log('Parking data received:', data); // Debug log
-                
-                detectionData.available = data.available_spaces;
-                detectionData.occupied = data.occupied_spaces;
-                detectionData.spaces = data.spaces || [];
-                
-                // Check if we have calibrated spaces
-                const hasPolygons = detectionData.spaces.some(s => s.polygon && s.polygon.length > 0);
-                console.log('Has calibrated polygons:', hasPolygons);
-                
-                if (!hasPolygons) {
-                    console.warn('⚠️ No calibrated spaces found. Please calibrate in /admin');
-                }
-                
-                updateUI(data);
-                drawDetectionOverlay();
-                updateSpaceGrid();
-            } catch (error) {
-                console.error('Error fetching parking data:', error);
+                document.getElementById('fps').textContent = '--';
+                document.getElementById('processingTime').textContent = '--';
             }
         }
 
@@ -460,19 +533,15 @@
         }
 
         function drawDetectionOverlay() {
-            if (!showOverlay) {
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
-                return;
-            }
-            
             ctx.clearRect(0, 0, canvas.width, canvas.height);
             
             // Only draw if we have actual calibrated spaces with polygon data
-            if (!detectionData.spaces || detectionData.spaces.length === 0) {
+            if (!detectionData.spots || detectionData.spots.length === 0) {
                 return; // No spaces to draw
             }
             
-            detectionData.spaces.forEach((space) => {
+            // Draw parking spots
+            detectionData.spots.forEach((space) => {
                 // Only draw if the space has polygon data from calibration
                 if (!space.polygon || space.polygon.length < 3) {
                     return; // Skip spaces without proper polygon data
@@ -484,10 +553,31 @@
                     y: point.y * canvas.height
                 }));
                 
-                // Determine color based on status
-                const isAvailable = space.status === 'available';
-                const color = isAvailable ? '#10b981' : '#ef4444';
-                const fillColor = isAvailable ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)';
+                // Check if this spot is highlighted
+                const isHighlighted = highlightedSpotId === space.id;
+                const isSmall = space.is_small || false;
+                
+                // Determine color based on status and highlight
+                const isFree = space.status === 'free';
+                let color = isFree ? '#10b981' : '#ef4444';
+                let fillColor = isFree ? 'rgba(16, 185, 129, 0.2)' : 'rgba(239, 68, 68, 0.2)';
+                let lineWidth = 2;
+                
+                // Apply small spot styling (dashed border)
+                if (isSmall && !isHighlighted) {
+                    ctx.setLineDash([5, 3]); // Dashed line for small spots
+                    lineWidth = 1.5; // Slightly thinner
+                } else {
+                    ctx.setLineDash([]); // Solid line for normal spots
+                }
+                
+                // Apply highlight styling
+                if (isHighlighted) {
+                    color = '#fbbf24'; // Yellow/gold for highlight
+                    fillColor = 'rgba(251, 191, 36, 0.4)'; // Brighter, more opaque
+                    lineWidth = 4; // Thicker border
+                    ctx.setLineDash([]); // Solid line when highlighted
+                }
                 
                 // Fill
                 ctx.fillStyle = fillColor;
@@ -501,47 +591,112 @@
                 
                 // Border
                 ctx.strokeStyle = color;
-                ctx.lineWidth = 2;
+                ctx.lineWidth = lineWidth;
                 ctx.stroke();
                 
-                // Label
+                // Calculate center for label
                 const centerX = polygon.reduce((sum, p) => sum + p.x, 0) / polygon.length;
                 const centerY = polygon.reduce((sum, p) => sum + p.y, 0) / polygon.length;
                 
-                ctx.fillStyle = color;
-                ctx.font = 'bold 14px Arial';
+                // Draw spot ID
+                ctx.fillStyle = '#000';
+                ctx.font = 'bold 12px Arial';
                 ctx.textAlign = 'center';
-                ctx.fillText(space.id.split('-')[1], centerX, centerY);
+                ctx.textBaseline = 'middle';
+                
+                // Background for text
+                const spotLabel = space.id.replace('SPACE-', '');
+                const textWidth = ctx.measureText(spotLabel).width;
+                ctx.fillStyle = color;
+                ctx.fillRect(centerX - textWidth/2 - 4, centerY - 8, textWidth + 8, 16);
+                
+                ctx.fillStyle = '#fff';
+                ctx.fillText(spotLabel, centerX, centerY);
+                
+                // Draw "S" badge for small spots in top-right corner
+                if (isSmall) {
+                    const topRight = polygon.reduce((max, p) => p.x > max.x ? p : max, polygon[0]);
+                    ctx.fillStyle = 'rgba(255, 165, 0, 0.8)'; // Orange background
+                    ctx.beginPath();
+                    ctx.arc(topRight.x - 8, topRight.y + 8, 7, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.fillStyle = '#fff';
+                    ctx.font = 'bold 9px Arial';
+                    ctx.fillText('S', topRight.x - 8, topRight.y + 8);
+                }
+                
+                // Draw vehicle info if occupied
+                if (!isFree && space.vehicle) {
+                    ctx.font = '10px Arial';
+                    const vehicleLabel = space.vehicle.class || 'vehicle';
+                    const confLabel = `${(space.confidence * 100).toFixed(0)}%`;
+                    
+                    // Draw vehicle type below spot number
+                    ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                    const vehicleTextWidth = ctx.measureText(`${vehicleLabel} ${confLabel}`).width;
+                    ctx.fillRect(centerX - vehicleTextWidth/2 - 3, centerY + 12, vehicleTextWidth + 6, 14);
+                    
+                    ctx.fillStyle = '#fff';
+                    ctx.fillText(`${vehicleLabel} ${confLabel}`, centerX, centerY + 19);
+                }
             });
+            
+            // Draw detection count
+            const detectedVehicles = detectionData.spots.filter(s => s.vehicle).length;
+            if (detectedVehicles > 0) {
+                document.getElementById('detectedCount').textContent = `${detectedVehicles} vehicles`;
+                
+                // Calculate average confidence
+                const occupiedSpots = detectionData.spots.filter(s => s.status === 'occupied');
+                if (occupiedSpots.length > 0) {
+                    const avgConfidence = occupiedSpots.reduce((sum, s) => sum + (s.confidence || 0), 0) / occupiedSpots.length;
+                    document.getElementById('confidence').textContent = `${(avgConfidence * 100).toFixed(0)}%`;
+                }
+            } else {
+                document.getElementById('detectedCount').textContent = 'No vehicles';
+                document.getElementById('confidence').textContent = '--';
+            }
         }
 
         function updateSpaceGrid() {
             const grid = document.getElementById('spaceGrid');
             
-            let filteredSpaces = detectionData.spaces;
+            let filteredSpots = detectionData.spots;
             if (currentFilter === 'available') {
-                filteredSpaces = detectionData.spaces.filter(s => s.status === 'available');
+                filteredSpots = detectionData.spots.filter(s => s.status === 'free');
             } else if (currentFilter === 'occupied') {
-                filteredSpaces = detectionData.spaces.filter(s => s.status === 'occupied');
+                filteredSpots = detectionData.spots.filter(s => s.status === 'occupied');
             }
             
-            grid.innerHTML = filteredSpaces.map(space => `
-                <div class="space-cell ${space.status}" title="${space.id} - ${space.status}">
-                    ${space.id.split('-')[1]}
-                </div>
-            `).join('');
+            grid.innerHTML = filteredSpots.map(spot => {
+                const statusClass = spot.status === 'free' ? 'available' : 'occupied';
+                const statusLabel = spot.status === 'free' ? 'Available' : 'Occupied';
+                const smallBadge = spot.is_small ? '<span style="font-size: 9px; color: #ff9800;">⚬</span> ' : '';
+                const smallTitle = spot.is_small ? ' (Small/Distant Spot)' : '';
+                return `
+                    <div class="space-cell ${statusClass}" 
+                         title="${spot.id} - ${statusLabel}${smallTitle}"
+                         onmouseenter="highlightSpot('${spot.id}')"
+                         onmouseleave="clearHighlight()">
+                        ${smallBadge}${spot.id.replace('SPACE-', '')}
+                    </div>
+                `;
+            }).join('');
         }
 
-        function toggleDetectionOverlay() {
-            showOverlay = !showOverlay;
-            const btn = document.getElementById('toggleOverlayBtn');
-            btn.textContent = showOverlay ? '👁️ Hide Detection Boxes' : '👁️ Show Detection Boxes';
+        function highlightSpot(spotId) {
+            highlightedSpotId = spotId;
+            drawDetectionOverlay();
+        }
+
+        function clearHighlight() {
+            highlightedSpotId = null;
             drawDetectionOverlay();
         }
 
         function refreshFeed() {
             loadLiveFeed();
-            fetchParkingData();
+            fetchDetectionOverlay();
         }
 
         function captureSnapshot() {

@@ -1,9 +1,0 @@
-{
-  "model_path": "yolov8n.pt",
-  "confidence_threshold": 0.3,
-  "overlap_threshold": 0.15,
-  "image_path": "data/images/test_image.jpg",
-  "spot_layout_path": "data/layouts/default_layout.json",
-  "output_dir": "output/",
-  "log_dir": "logs/"
-}
