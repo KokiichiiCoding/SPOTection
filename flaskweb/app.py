@@ -787,106 +787,126 @@ def lot_calibration(lot_id):
         return jsonify({'error': 'Authentication required'}), 401
     
     if request.method == 'GET':
-        # Get calibration for this lot
-        config_file = 'config.json'
-        if os.path.exists(config_file):
-            with open(config_file, 'r') as f:
-                config = json.load(f)
-                # Check if we have lot-specific calibration
-                lot_key = f'calibration_data_{lot_id}'
-                if lot_key in config:
-                    return jsonify({'calibration_data': config[lot_key], 'lot_id': lot_id})
-                # Fall back to default calibration if it's the default lot
-                elif lot_id == config.get('default_lot_id', 'LOT-001') and 'calibration_data' in config:
-                    return jsonify({'calibration_data': config['calibration_data'], 'lot_id': lot_id})
-        return jsonify({'calibration_data': [], 'lot_id': lot_id})
+        try:
+            # Get calibration for this lot
+            config_file = 'config.json'
+            if os.path.exists(config_file):
+                with open(config_file, 'r') as f:
+                    config = json.load(f)
+                    # Check if we have lot-specific calibration
+                    lot_key = f'calibration_data_{lot_id}'
+                    if lot_key in config:
+                        return jsonify({'calibration_data': config[lot_key], 'lot_id': lot_id})
+                    # Fall back to default calibration if it's the default lot
+                    elif lot_id == config.get('default_lot_id', 'LOT-001') and 'calibration_data' in config:
+                        return jsonify({'calibration_data': config['calibration_data'], 'lot_id': lot_id})
+            return jsonify({'calibration_data': [], 'lot_id': lot_id})
+        except Exception as e:
+            logger.error(f"Error loading calibration for {lot_id}: {e}")
+            return jsonify({'error': str(e), 'calibration_data': [], 'lot_id': lot_id}), 500
     
     elif request.method == 'POST':
-        data = request.json
-        calibration_spaces = data.get('calibration_data', [])
-        
-        logger.info(f"✅ Saving {len(calibration_spaces)} calibrated spaces to lot {lot_id}")
-        
-        # SYNC TO DATABASE: Create/update Spot records for this lot
         try:
-            lot = ParkingLot.query.filter_by(public_id=lot_id).first()
+            data = request.json
+            if not data:
+                return jsonify({'success': False, 'error': 'No JSON data provided'}), 400
             
-            if not lot:
-                logger.warning(f"Lot '{lot_id}' not found in database. Creating it...")
-                lot = ParkingLot(
-                    public_id=lot_id,
-                    name=f"Parking Lot {lot_id}",
-                    total_spots=len(calibration_spaces)
-                )
-                db.session.add(lot)
-                db.session.flush()
-                logger.info(f"Created new lot: {lot_id}")
-            else:
-                # Update total spots
-                lot.total_spots = len(calibration_spaces)
+            calibration_spaces = data.get('calibration_data', [])
             
-            # Get existing spots for this lot
-            existing_spots = {spot.spot_id: spot for spot in Spot.query.filter_by(lot_id=lot.id).all()}
-            calibrated_spot_ids = {space['id'] for space in calibration_spaces}
+            if not calibration_spaces:
+                return jsonify({'success': False, 'error': 'No calibration_data in request'}), 400
             
-            # Remove spots that are no longer in calibration
-            for spot_id, spot in list(existing_spots.items()):
-                if spot_id not in calibrated_spot_ids:
-                    logger.info(f"Removing deleted spot: {spot_id}")
-                    StatusUpdate.query.filter_by(spot_id=spot.id).delete()
-                    db.session.delete(spot)
-                    del existing_spots[spot_id]
+            logger.info(f"✅ Saving {len(calibration_spaces)} calibrated spaces to lot {lot_id}")
             
-            # Add new spots from calibration
-            spots_created = 0
-            for space in calibration_spaces:
-                spot_id = space['id']
-                if spot_id not in existing_spots:
-                    new_spot = Spot(spot_id=spot_id, lot_id=lot.id)
-                    db.session.add(new_spot)
-                    db.session.flush()
-                    
-                    # Create initial 'free' status
-                    initial_status = StatusUpdate(
-                        spot_id=new_spot.id,
-                        status='free',
-                        confidence=0.0,
-                        vehicle_data=None
+            # SYNC TO DATABASE: Create/update Spot records for this lot
+            try:
+                lot = ParkingLot.query.filter_by(public_id=lot_id).first()
+                
+                if not lot:
+                    logger.warning(f"Lot '{lot_id}' not found in database. Creating it...")
+                    lot = ParkingLot(
+                        public_id=lot_id,
+                        name=f"Parking Lot {lot_id}",
+                        total_spots=len(calibration_spaces)
                     )
-                    db.session.add(initial_status)
-                    spots_created += 1
-                    logger.info(f"Created new spot: {spot_id} with initial 'free' status")
+                    db.session.add(lot)
+                    db.session.flush()
+                    logger.info(f"Created new lot: {lot_id}")
+                else:
+                    # Update total spots
+                    lot.total_spots = len(calibration_spaces)
+                
+                # Get existing spots for this lot
+                existing_spots = {spot.spot_id: spot for spot in Spot.query.filter_by(lot_id=lot.id).all()}
+                calibrated_spot_ids = {space['id'] for space in calibration_spaces}
+                
+                # Remove spots that are no longer in calibration
+                for spot_id, spot in list(existing_spots.items()):
+                    if spot_id not in calibrated_spot_ids:
+                        logger.info(f"Removing deleted spot: {spot_id}")
+                        StatusUpdate.query.filter_by(spot_id=spot.id).delete()
+                        db.session.delete(spot)
+                        del existing_spots[spot_id]
+                
+                # Add new spots from calibration
+                spots_created = 0
+                for space in calibration_spaces:
+                    spot_id = space['id']
+                    if spot_id not in existing_spots:
+                        new_spot = Spot(spot_id=spot_id, lot_id=lot.id)
+                        db.session.add(new_spot)
+                        db.session.flush()
+                        
+                        # Create initial 'free' status
+                        initial_status = StatusUpdate(
+                            spot_id=new_spot.id,
+                            status='free',
+                            confidence=0.0,
+                            vehicle_data=None
+                        )
+                        db.session.add(initial_status)
+                        spots_created += 1
+                        logger.info(f"Created new spot: {spot_id} with initial 'free' status")
+                
+                db.session.commit()
+                logger.info(f"✓ Database synced: {spots_created} new spots created, {len(calibration_spaces)} total spots in lot '{lot_id}'")
+                
+            except Exception as e:
+                db.session.rollback()
+                logger.error(f"Error syncing calibration to database: {e}", exc_info=True)
+                return jsonify({'success': False, 'error': f'Database error: {str(e)}'}), 500
             
-            db.session.commit()
-            logger.info(f"✓ Database synced: {spots_created} new spots created, {len(calibration_spaces)} total spots in lot '{lot_id}'")
+            # Save to config file
+            config_file = 'config.json'
+            existing_config = {}
+            if os.path.exists(config_file):
+                with open(config_file, 'r') as f:
+                    try:
+                        existing_config = json.load(f)
+                    except json.JSONDecodeError as je:
+                        logger.error(f"Config file corrupted: {je}")
+                        return jsonify({'success': False, 'error': 'Config file is corrupted'}), 500
             
+            # Save lot-specific calibration
+            lot_key = f'calibration_data_{lot_id}'
+            existing_config[lot_key] = calibration_spaces
+            
+            # If this is the default lot, also update the main calibration_data
+            if lot_id == existing_config.get('default_lot_id', 'LOT-001'):
+                existing_config['calibration_data'] = calibration_spaces
+            
+            try:
+                with open(config_file, 'w') as f:
+                    json.dump(existing_config, f, indent=2)
+            except Exception as e:
+                logger.error(f"Error writing config file: {e}")
+                return jsonify({'success': False, 'error': f'Failed to save config: {str(e)}'}), 500
+            
+            return jsonify({'success': True, 'lot_id': lot_id, 'spaces_saved': len(calibration_spaces)})
+        
         except Exception as e:
-            db.session.rollback()
-            logger.error(f"Error syncing calibration to database: {e}", exc_info=True)
+            logger.error(f"Error saving calibration for {lot_id}: {e}", exc_info=True)
             return jsonify({'success': False, 'error': str(e)}), 500
-        
-        # Save to config file
-        config_file = 'config.json'
-        existing_config = {}
-        if os.path.exists(config_file):
-            with open(config_file, 'r') as f:
-                try:
-                    existing_config = json.load(f)
-                except:
-                    pass
-        
-        # Save lot-specific calibration
-        lot_key = f'calibration_data_{lot_id}'
-        existing_config[lot_key] = calibration_spaces
-        
-        # If this is the default lot, also update the main calibration_data
-        if lot_id == existing_config.get('default_lot_id', 'LOT-001'):
-            existing_config['calibration_data'] = calibration_spaces
-        
-        with open(config_file, 'w') as f:
-            json.dump(existing_config, f, indent=2)
-        
-        return jsonify({'success': True, 'lot_id': lot_id, 'spaces_saved': len(calibration_spaces)})
 
 @app.route('/api/lot/<string:lot_id>/calibration/status', methods=['GET'])
 def lot_calibration_status(lot_id):
@@ -1734,8 +1754,13 @@ if __name__ == '__main__':
     
     logger.info("=" * 50)
     
+    # Get host and port from config, with fallbacks
+    host = main_config.get('host', '0.0.0.0')
+    port = main_config.get('port', 5000)
+    debug = main_config.get('debug', False)
+    
     try:
-        app.run(host='0.0.0.0', port=5000, debug=True, use_reloader=False)
+        app.run(host=host, port=port, debug=debug, use_reloader=False)
     finally:
         # Cleanup
         stop_detection()
