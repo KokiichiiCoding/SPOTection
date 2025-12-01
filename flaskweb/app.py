@@ -1,9 +1,12 @@
 from flask import Flask, render_template, jsonify, request, send_from_directory, session, redirect, url_for
 from flask_cors import CORS
+from flask_limiter import Limiter
 import sys
 import os
 from functools import wraps
 import secrets
+
+limiter = Limiter(app, key_func=lambda: request.remote_addr)
 
 # Add parent directory to path to allow imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
@@ -685,6 +688,7 @@ def login_required(f):
     return decorated_function
 
 @app.route('/login', methods=['GET', 'POST'])
+@limiter.limit("5 per minute")
 def login():
     """Login page"""
     if request.method == 'POST':
