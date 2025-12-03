@@ -6,7 +6,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>Calibration Tool - Parking Detection System</title>
+    <title>Admin Panel - SPOTection</title>
     <link rel="stylesheet" href="/static/css/style.css?v=2">
     <style>
         .calibration-workspace {
@@ -140,6 +140,7 @@
             <h1>🚗 Parking Detection System</h1>
             <div class="nav-links">
                 <a href="/">Dashboard</a>
+                <a href="/media-archive">Media Archive</a>
                 <a href="/admin" class="active">Admin</a>
                 <a href="/logout" style="color: #ef4444;">Logout</a>
             </div>
@@ -148,10 +149,10 @@
 
     <div class="container">
         <div class="header">
-            <h2>Parking Space Calibration Tool</h2>
-            <p>Draw polygons directly on the live camera feed to define parking spaces</p>
+            <h2>⚙️ Admin Panel - SPOTection</h2>
+            <p>Calibration, Configuration & System Management</p>
             <div style="display: flex; align-items: center; gap: 1rem; margin-top: 1rem; padding: 1rem; background: var(--background); border-radius: 8px;">
-                <label for="lotSelector" style="font-weight: 500;">Calibrating Lot:</label>
+                <label for="lotSelector" style="font-weight: 500;">Active Lot:</label>
                 <select id="lotSelector" style="padding: 0.5rem; border-radius: 4px; border: 1px solid #ddd; font-size: 1rem;">
                     <option value="">Loading lots...</option>
                 </select>
@@ -160,14 +161,12 @@
         </div>
 
         <div class="instructions">
-            <h4>📋 How to Calibrate:</h4>
+            <h4>📋 Calibration Guide:</h4>
             <ul>
-                <li><strong style="color: var(--primary-color);">✨ Just click on the video feed!</strong> Mark 4 corners to define a parking space</li>
-                <li>The space will automatically save after the 4th click</li>
-                <li>Continue clicking to add more spaces - no need to press any buttons</li>
-                <li>Each space appears in the list on the right and can be edited or deleted</li>
-                <li>Use different colors to organize spaces by zones or types</li>
-                <li>Press "Save All" when finished to apply calibration to the system</li>
+                <li><strong style="color: var(--primary-color);">✨ Click on the video feed</strong> to mark 4 corners and define a parking space</li>
+                <li>Spaces automatically save after the 4th point - continue clicking to add more</li>
+                <li>Use the space list to edit or delete individual spaces</li>
+                <li>Choose different colors to organize zones or spot types</li>
             </ul>
         </div>
 
@@ -245,61 +244,6 @@
                             🔄 Check Sync Status
                         </button>
                     </div>
-                </div>
-
-                <!-- Configuration Section -->
-                <div class="content-section" style="margin-top: 2rem;">
-                    <h3>System Configuration</h3>
-                    
-                    <form id="configForm">
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                            <div class="form-group">
-                                <label for="confidenceThreshold">Confidence Threshold</label>
-                                <input type="number" id="confidenceThreshold" name="confidenceThreshold" 
-                                       min="0" max="1" step="0.05" value="0.2" required>
-                                <small style="color: #666;">Min confidence for vehicle detection (0.0 - 1.0)</small>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="overlapThreshold">Overlap Threshold</label>
-                                <input type="number" id="overlapThreshold" name="overlapThreshold" 
-                                       min="0" max="1" step="0.05" value="0.25" required>
-                                <small style="color: #666;">Min overlap ratio for spot occupancy (0.0 - 1.0)</small>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="iouThreshold">IOU Threshold (NMS)</label>
-                                <input type="number" id="iouThreshold" name="iouThreshold" 
-                                       min="0" max="1" step="0.05" value="0.45" required>
-                                <small style="color: #666;">Non-Maximum Suppression threshold (0.0 - 1.0)</small>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="detectionImageSize">Detection Image Size</label>
-                                <input type="number" id="detectionImageSize" name="detectionImageSize" 
-                                       min="320" max="1280" step="64" value="640" required>
-                                <small style="color: #666;">YOLO input size in pixels (higher = more accurate but slower)</small>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="detectionThreshold">Detection Threshold (Legacy)</label>
-                                <input type="number" id="detectionThreshold" name="detectionThreshold" 
-                                       min="0" max="1" step="0.05" value="0.5" required>
-                            </div>
-
-                            <div class="form-group">
-                                <label for="updateInterval">Update Interval (sec)</label>
-                                <input type="number" id="updateInterval" name="updateInterval" 
-                                       min="1" max="60" value="5" required>
-                            </div>
-                        </div>
-
-                        <div class="button-group">
-                            <button type="submit" class="btn btn-primary">Save Configuration</button>
-                            <button type="button" onclick="loadConfig()" class="btn btn-secondary">Reset</button>
-                        </div>
-                    </form>
-                    <div id="configMessage" style="margin-top: 1rem;"></div>
                 </div>
 
                 <!-- Camera Configuration Section -->
@@ -388,6 +332,156 @@
                         </div>
                     </form>
                     <div id="lotManagementMessage" style="margin-top: 1rem;"></div>
+                </div>
+
+                <!-- Media Storage Statistics Section -->
+                <div class="content-section" style="margin-top: 2rem;">
+                    <h3>📊 Media Storage Statistics</h3>
+                    <div class="stats-grid" id="mediaStatsGrid">
+                        <div class="stat-card">
+                            <div class="stat-value">-</div>
+                            <div class="stat-label">Loading...</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- System Settings Section -->
+                <div class="content-section" style="margin-top: 2rem;">
+                    <h3>⚙️ System Settings</h3>
+                    <form id="systemSettingsForm">
+                        <!-- Detection Settings -->
+                        <div style="margin-bottom: 2rem;">
+                            <h4 style="color: var(--primary-color); margin-bottom: 1rem; border-bottom: 2px solid var(--primary-color); padding-bottom: 0.5rem;">
+                                🎯 Detection Settings
+                            </h4>
+
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                                <div class="form-group">
+                                    <label for="confidenceThresholdSystem">Confidence Threshold</label>
+                                    <input type="number" id="confidenceThresholdSystem" min="0" max="1" step="0.05" value="0.2">
+                                    <small style="color: var(--text-secondary);">Minimum confidence for vehicle detection (0.0 - 1.0)</small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="overlapThresholdSystem">Overlap Threshold</label>
+                                    <input type="number" id="overlapThresholdSystem" min="0" max="1" step="0.05" value="0.25">
+                                    <small style="color: var(--text-secondary);">Minimum overlap ratio for spot occupancy (0.0 - 1.0)</small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="iouThresholdSystem">IOU Threshold (NMS)</label>
+                                    <input type="number" id="iouThresholdSystem" min="0" max="1" step="0.05" value="0.45">
+                                    <small style="color: var(--text-secondary);">Non-Maximum Suppression threshold (0.0 - 1.0)</small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="detectionImageSizeSystem">Detection Image Size</label>
+                                    <input type="number" id="detectionImageSizeSystem" min="320" max="1280" step="64" value="1280">
+                                    <small style="color: var(--text-secondary);">YOLO input size in pixels (higher = more accurate but slower)</small>
+                                </div>
+
+                                <div class="form-group">
+                                    <label for="updateIntervalSystem">Update Interval (seconds)</label>
+                                    <input type="number" id="updateIntervalSystem" min="1" max="60" value="5">
+                                    <small style="color: var(--text-secondary);">Detection loop frequency</small>
+                                </div>
+
+                                <div class="form-group" style="display: flex; align-items: center;">
+                                    <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer; margin: 0;">
+                                        <input type="checkbox" id="imageEnhancement" style="width: auto;">
+                                        <span>Enable Image Enhancement</span>
+                                    </label>
+                                </div>
+                            </div>
+                            <small style="color: var(--text-secondary); display: block; margin-top: 0.5rem;">
+                                💡 Image enhancement applies preprocessing for better detection in poor lighting conditions
+                            </small>
+                        </div>
+
+                        <!-- Media Storage Settings -->
+                        <div style="margin-bottom: 2rem;">
+                            <h4 style="color: var(--primary-color); margin-bottom: 1rem; border-bottom: 2px solid var(--primary-color); padding-bottom: 0.5rem;">
+                                📁 Media Storage
+                            </h4>
+                            
+                            <div class="form-group">
+                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                    <input type="checkbox" id="mediaStorageEnabled" style="width: auto;">
+                                    <span>Enable Media Storage</span>
+                                </label>
+                                <small style="color: var(--text-secondary); display: block; margin-top: 0.25rem;">
+                                    Store images and videos for archive/playback
+                                </small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="maxSizeGB">Maximum Storage Size (GB)</label>
+                                <input type="number" id="maxSizeGB" min="1" max="500" step="1" value="20">
+                                <small style="color: var(--text-secondary);">
+                                    Maximum disk space for media archive. Older files automatically deleted when exceeded.
+                                </small>
+                            </div>
+
+                            <div class="form-group">
+                                <label for="captureInterval">Image Capture Interval (seconds)</label>
+                                <input type="number" id="captureInterval" min="10" max="3600" step="10" value="300">
+                                <small style="color: var(--text-secondary);">
+                                    How often to capture images (default: 300 = 5 minutes)
+                                </small>
+                            </div>
+
+                            <div class="form-group">
+                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                    <input type="checkbox" id="captureOnChange" style="width: auto;">
+                                    <span>Capture on Occupancy Change</span>
+                                </label>
+                                <small style="color: var(--text-secondary); display: block; margin-top: 0.25rem;">
+                                    Automatically capture when parking occupancy changes
+                                </small>
+                            </div>
+
+                            <div class="form-group">
+                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                    <input type="checkbox" id="keepThumbnails" style="width: auto;">
+                                    <span>Generate Thumbnails</span>
+                                </label>
+                                <small style="color: var(--text-secondary); display: block; margin-top: 0.25rem;">
+                                    Create thumbnail previews for faster loading
+                                </small>
+                            </div>
+                        </div>
+
+                        <!-- Maintenance Settings -->
+                        <div style="margin-bottom: 2rem;">
+                            <h4 style="color: var(--primary-color); margin-bottom: 1rem; border-bottom: 2px solid var(--primary-color); padding-bottom: 0.5rem;">
+                                🔧 Maintenance
+                            </h4>
+
+                            <div class="form-group">
+                                <label for="screenshotInterval">Screenshot Interval (seconds)</label>
+                                <input type="number" id="screenshotInterval" min="10" max="600" step="10" value="120">
+                                <small style="color: var(--text-secondary);">
+                                    How often to save raw screenshots (for debugging)
+                                </small>
+                            </div>
+
+                            <div class="form-group">
+                                <label style="display: flex; align-items: center; gap: 0.5rem; cursor: pointer;">
+                                    <input type="checkbox" id="saveRawScreenshots" style="width: auto;">
+                                    <span>Save Raw Screenshots</span>
+                                </label>
+                                <small style="color: var(--text-secondary); display: block; margin-top: 0.25rem;">
+                                    Keep unprocessed camera frames in screenshots/ folder
+                                </small>
+                            </div>
+                        </div>
+
+                        <div class="button-group">
+                            <button type="submit" class="btn btn-primary" style="font-size: 1.1rem;">💾 Save System Settings</button>
+                            <button type="button" onclick="loadSystemSettings()" class="btn btn-secondary">🔄 Reload Settings</button>
+                        </div>
+                    </form>
+                    <div id="systemSettingsMessage" style="margin-top: 1rem;"></div>
                 </div>
             </div>
 
@@ -1136,55 +1230,6 @@
             input.click();
         }
 
-        // Configuration management
-        async function loadConfig() {
-            try {
-                const response = await fetch('/api/config');
-                const config = await response.json();
-                
-                document.getElementById('confidenceThreshold').value = config.confidence_threshold || 0.2;
-                document.getElementById('overlapThreshold').value = config.overlap_threshold || 0.25;
-                document.getElementById('iouThreshold').value = config.iou_threshold || 0.45;
-                document.getElementById('detectionImageSize').value = config.detection_image_size || 640;
-                document.getElementById('detectionThreshold').value = config.detection_threshold || 0.5;
-                document.getElementById('updateInterval').value = config.update_interval || 5;
-            } catch (error) {
-                console.error('Error loading config:', error);
-            }
-        }
-
-        document.getElementById('configForm').addEventListener('submit', async function(e) {
-            e.preventDefault();
-            
-            const config = {
-                confidence_threshold: parseFloat(document.getElementById('confidenceThreshold').value),
-                overlap_threshold: parseFloat(document.getElementById('overlapThreshold').value),
-                iou_threshold: parseFloat(document.getElementById('iouThreshold').value),
-                detection_image_size: parseInt(document.getElementById('detectionImageSize').value),
-                detection_threshold: parseFloat(document.getElementById('detectionThreshold').value),
-                update_interval: parseInt(document.getElementById('updateInterval').value)
-            };
-
-            try {
-                const response = await fetch('/api/config', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify(config)
-                });
-                
-                const result = await response.json();
-                document.getElementById('configMessage').innerHTML = 
-                    '<p style="color: var(--success-color);">✓ Configuration saved successfully!</p>';
-                
-                setTimeout(() => {
-                    document.getElementById('configMessage').innerHTML = '';
-                }, 3000);
-            } catch (error) {
-                document.getElementById('configMessage').innerHTML = 
-                    '<p style="color: var(--danger-color);">✗ Error saving configuration</p>';
-            }
-        });
-
         // Camera Configuration
         async function loadCameraConfig() {
             const lotId = document.getElementById('lotSelector').value;
@@ -1319,10 +1364,247 @@
         
         // Check calibration status on page load
         checkCalibrationStatus();
+        
+        // Load system settings and media stats on page load
+        loadMediaStats();
+        loadSystemSettings();
 
         // Cleanup on page unload
         window.addEventListener('beforeunload', () => {
             clearInterval(feedUpdateInterval);
+        });
+
+        // ============================================
+        // MEDIA STORAGE STATISTICS
+        // =========================
+        async function loadMediaStats() {
+            try {
+                const response = await fetch('/api/media/storage/stats');
+                const data = await response.json();
+                
+                if (data.error) {
+                    displayMediaStatsError(data.error);
+                    return;
+                }
+                
+                displayMediaStats(data);
+            } catch (error) {
+                displayMediaStatsError('Failed to load storage stats: ' + error.message);
+            }
+        }
+
+        function displayMediaStats(stats) {
+            const grid = document.getElementById('mediaStatsGrid');
+            
+            const percentFull = stats.percent_full || 0;
+            const barColor = percentFull > 90 ? '#ef4444' : percentFull > 75 ? '#f59e0b' : '#10b981';
+            
+            grid.innerHTML = `
+                <div class="stat-card">
+                    <div class="stat-value">${stats.total_size_gb ? stats.total_size_gb.toFixed(2) : '0.00'} GB</div>
+                    <div class="stat-label">Used Storage</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${stats.max_size_gb ? stats.max_size_gb.toFixed(0) : '20'} GB</div>
+                    <div class="stat-label">Max Storage</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" style="color: ${barColor}">${percentFull.toFixed(1)}%</div>
+                    <div class="stat-label">Capacity</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${stats.image_count || 0}</div>
+                    <div class="stat-label">Images</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${stats.video_count || 0}</div>
+                    <div class="stat-label">Videos</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${stats.oldest_media_days ? stats.oldest_media_days.toFixed(0) : '0'} days</div>
+                    <div class="stat-label">Oldest Media</div>
+                </div>
+            `;
+        }
+
+        function displayMediaStatsError(message) {
+            const grid = document.getElementById('mediaStatsGrid');
+            grid.innerHTML = `
+                <div class="error-message" style="grid-column: 1 / -1; padding: 1rem; background: rgba(239, 68, 68, 0.1); border-radius: 8px; color: #ef4444;">
+                    ⚠️ ${message}<br>
+                    <small>Media storage may not be initialized yet. Try starting the detection system.</small>
+                </div>
+            `;
+        }
+
+        // MEDIA STORAGE STATISTICS
+        // ============================================
+        async function loadMediaStats() {
+            try {
+                const response = await fetch('/api/media/storage/stats');
+                const data = await response.json();
+                
+                if (data.error) {
+                    displayMediaStatsError(data.error);
+                    return;
+                }
+                
+                displayMediaStats(data);
+            } catch (error) {
+                displayMediaStatsError('Failed to load storage stats: ' + error.message);
+            }
+        }
+
+        function displayMediaStats(stats) {
+            const grid = document.getElementById('mediaStatsGrid');
+            
+            const percentFull = stats.percent_full || 0;
+            const barColor = percentFull > 90 ? '#ef4444' : percentFull > 75 ? '#f59e0b' : '#10b981';
+            
+            grid.innerHTML = `
+                <div class="stat-card">
+                    <div class="stat-value">${stats.total_size_gb ? stats.total_size_gb.toFixed(2) : '0.00'} GB</div>
+                    <div class="stat-label">Used Storage</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${stats.max_size_gb ? stats.max_size_gb.toFixed(0) : '20'} GB</div>
+                    <div class="stat-label">Max Storage</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" style="color: ${barColor}">${percentFull.toFixed(1)}%</div>
+                    <div class="stat-label">Capacity</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${stats.image_count || 0}</div>
+                    <div class="stat-label">Images</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${stats.video_count || 0}</div>
+                    <div class="stat-label">Videos</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${stats.oldest_media_days ? stats.oldest_media_days.toFixed(0) : '0'} days</div>
+                    <div class="stat-label">Oldest Media</div>
+                </div>
+            `;
+        }
+
+        function displayMediaStatsError(message) {
+            const grid = document.getElementById('mediaStatsGrid');
+            grid.innerHTML = `
+                <div class="error-message" style="grid-column: 1 / -1; padding: 1rem; background: rgba(239, 68, 68, 0.1); border-radius: 8px; color: #ef4444;">
+                    ⚠️ ${message}<br>
+                    <small>Media storage may not be initialized yet. Try starting the detection system.</small>
+                </div>
+            `;
+        }
+
+        // SYSTEM SETTINGS FUNCTIONS
+        // ============================================
+        
+        async function loadSystemSettings() {
+            try {
+                const response = await fetch('/api/system/settings');
+                const settings = await response.json();
+                
+                // Detection Settings - load from main config
+                const configResponse = await fetch('/api/config');
+                const config = await configResponse.json();
+                
+                if (config) {
+                    document.getElementById('confidenceThresholdSystem').value = config.confidence_threshold || 0.2;
+                    document.getElementById('overlapThresholdSystem').value = config.overlap_threshold || 0.25;
+                    document.getElementById('iouThresholdSystem').value = config.iou_threshold || 0.45;
+                    document.getElementById('detectionImageSizeSystem').value = config.detection_image_size || 1280;
+                    document.getElementById('updateIntervalSystem').value = config.update_interval || 5;
+                    document.getElementById('imageEnhancement').checked = config.image_enhancement !== false;
+                }
+                
+                // Media Storage
+                if (settings.media_storage) {
+                    document.getElementById('mediaStorageEnabled').checked = settings.media_storage.enabled !== false;
+                    document.getElementById('maxSizeGB').value = settings.media_storage.max_size_gb || 20;
+                    document.getElementById('captureInterval').value = settings.media_storage.capture_interval || 300;
+                    document.getElementById('captureOnChange').checked = settings.media_storage.capture_on_change !== false;
+                    document.getElementById('keepThumbnails').checked = settings.media_storage.keep_thumbnails !== false;
+                }
+                
+                // System Settings
+                if (settings.system) {
+                    document.getElementById('screenshotInterval').value = settings.system.screenshot_interval || 120;
+                    document.getElementById('saveRawScreenshots').checked = settings.system.save_raw_screenshots !== false;
+                }
+                
+                console.log('✓ System settings loaded');
+            } catch (error) {
+                console.error('Error loading system settings:', error);
+                document.getElementById('systemSettingsMessage').innerHTML = 
+                    '<p style="color: var(--danger-color);">⚠️ Error loading settings</p>';
+            }
+        }
+        
+        document.getElementById('systemSettingsForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const messageDiv = document.getElementById('systemSettingsMessage');
+            messageDiv.innerHTML = '<p style="color: var(--primary-color);">💾 Saving settings...</p>';
+            
+            // Prepare detection config
+            const detectionConfig = {
+                confidence_threshold: parseFloat(document.getElementById('confidenceThresholdSystem').value),
+                overlap_threshold: parseFloat(document.getElementById('overlapThresholdSystem').value),
+                iou_threshold: parseFloat(document.getElementById('iouThresholdSystem').value),
+                detection_image_size: parseInt(document.getElementById('detectionImageSizeSystem').value),
+                update_interval: parseInt(document.getElementById('updateIntervalSystem').value),
+                image_enhancement: document.getElementById('imageEnhancement').checked
+            };
+            
+            // Prepare system settings
+            const settings = {
+                media_storage: {
+                    enabled: document.getElementById('mediaStorageEnabled').checked,
+                    max_size_gb: parseFloat(document.getElementById('maxSizeGB').value),
+                    capture_interval: parseInt(document.getElementById('captureInterval').value),
+                    capture_on_change: document.getElementById('captureOnChange').checked,
+                    keep_thumbnails: document.getElementById('keepThumbnails').checked
+                },
+                system: {
+                    screenshot_interval: parseInt(document.getElementById('screenshotInterval').value),
+                    save_raw_screenshots: document.getElementById('saveRawScreenshots').checked
+                }
+            };
+            
+            try {
+                // Save detection config
+                const configResponse = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(detectionConfig)
+                });
+                
+                // Save system settings
+                const settingsResponse = await fetch('/api/system/settings', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify(settings)
+                });
+                
+                const configResult = await configResponse.json();
+                const settingsResult = await settingsResponse.json();
+                
+                if (configResult.success && settingsResult.success) {
+                    messageDiv.innerHTML = '<p style="color: var(--success-color);">✅ All settings saved successfully!</p>';
+                    
+                    setTimeout(() => {
+                        messageDiv.innerHTML = '';
+                    }, 5000);
+                } else {
+                    messageDiv.innerHTML = `<p style="color: var(--danger-color);">❌ Error: ${configResult.error || settingsResult.error}</p>`;
+                }
+            } catch (error) {
+                console.error('Error saving settings:', error);
+                messageDiv.innerHTML = '<p style="color: var(--danger-color);">❌ Failed to save settings</p>';
+            }
         });
     </script>
 </body>

@@ -1,0 +1,1680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Media Archive - SPOTection</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <style>
+        .media-archive-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 2rem;
+        }
+
+        .page-header {
+            margin-bottom: 2rem;
+        }
+
+        .page-header h2 {
+            font-size: 2rem;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .page-header p {
+            color: var(--text-secondary);
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 1.5rem;
+            margin-bottom: 2rem;
+        }
+
+        .stat-card {
+            background: var(--card-background);
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 2rem;
+            font-weight: 700;
+            color: var(--primary-color);
+            margin-bottom: 0.5rem;
+        }
+
+        .stat-label {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
+        .controls-card {
+            background: var(--card-background);
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            margin-bottom: 2rem;
+        }
+
+        .controls-card h3 {
+            margin-bottom: 1rem;
+            color: var(--text-primary);
+        }
+
+        .date-controls {
+            display: flex;
+            gap: 0.75rem;
+            flex-wrap: wrap;
+            align-items: center;
+        }
+
+        .date-controls input[type="date"] {
+            padding: 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 1rem;
+            flex: 1;
+            min-width: 200px;
+        }
+
+        .btn {
+            padding: 0.75rem 1.5rem;
+            border: none;
+            border-radius: 8px;
+            font-size: 1rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-primary {
+            background: var(--primary-color);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            background: #1e40af;
+        }
+
+        .btn-secondary {
+            background: var(--secondary-color);
+            color: white;
+        }
+
+        .btn-secondary:hover {
+            background: #475569;
+        }
+
+        .btn-danger {
+            background: var(--danger-color);
+            color: white;
+        }
+
+        .btn-danger:hover {
+            background: #dc2626;
+        }
+
+        .timeline-card {
+            background: var(--card-background);
+            padding: 1.5rem;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            margin-bottom: 2rem;
+        }
+
+        .timeline-grid {
+            display: grid;
+            grid-template-columns: repeat(24, 1fr);
+            gap: 0.25rem;
+            margin-top: 1rem;
+            padding: 0.5rem;
+            background: #f8fafc;
+            border-radius: 8px;
+        }
+
+        .timeline-hour {
+            background: #e2e8f0;
+            padding: 0.75rem 0.25rem;
+            border-radius: 6px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            border: 2px solid transparent;
+            position: relative;
+            min-height: 80px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .timeline-hour:hover {
+            border-color: var(--primary-color);
+            transform: scale(1.05);
+            box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+            z-index: 10;
+        }
+
+        .timeline-hour.has-media {
+            background: linear-gradient(135deg, var(--primary-color) 0%, #1e40af 100%);
+            color: white;
+            font-weight: 600;
+        }
+
+        .timeline-hour.has-media .hour-label {
+            color: white;
+        }
+
+        .timeline-hour.selected {
+            background: linear-gradient(135deg, var(--success-color) 0%, #059669 100%);
+            color: white;
+            border-color: var(--success-color);
+            transform: scale(1.1);
+        }
+
+        .hour-label {
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .media-count {
+            font-size: 0.75rem;
+            color: var(--primary-color);
+            font-weight: 700;
+            margin-top: 0.25rem;
+        }
+
+        .timeline-hour.has-media {
+            background: var(--primary-color);
+            color: white;
+            font-weight: 600;
+        }
+
+        .timeline-hour.selected {
+            background: var(--success-color);
+            color: white;
+            border-color: var(--success-color);
+        }
+
+        .hour-label {
+            font-size: 0.9rem;
+            font-weight: 600;
+        }
+
+        .media-count {
+            font-size: 0.75rem;
+            opacity: 0.9;
+        }
+
+        .media-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 1.5rem;
+        }
+
+        .media-item {
+            background: var(--card-background);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .media-item:hover {
+            transform: translateY(-4px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        }
+
+        .media-thumbnail {
+            width: 100%;
+            height: 180px;
+            object-fit: cover;
+        }
+
+        .media-info {
+            padding: 1rem;
+        }
+
+        .media-time {
+            font-weight: 600;
+            color: var(--text-primary);
+            margin-bottom: 0.5rem;
+        }
+
+        .media-details {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.9);
+            z-index: 1000;
+            overflow: auto;
+        }
+
+        .modal-content {
+            max-width: 1200px;
+            margin: 2rem auto;
+            padding: 2rem;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1.5rem;
+        }
+
+        .modal-title {
+            color: white;
+            font-size: 1.5rem;
+        }
+
+        .close-modal {
+            color: white;
+            font-size: 2rem;
+            cursor: pointer;
+            background: none;
+            border: none;
+        }
+
+        .close-modal:hover {
+            color: #ccc;
+        }
+
+        .modal-image {
+            width: 100%;
+            border-radius: 12px;
+            margin-bottom: 1.5rem;
+        }
+
+        .modal-info-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 12px;
+        }
+
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.75rem 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .info-row:last-child {
+            border-bottom: none;
+        }
+
+        .info-label {
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .info-value {
+            color: var(--text-primary);
+        }
+
+        .parking-spots-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+            gap: 0.75rem;
+            margin-top: 1rem;
+        }
+
+        .spot-badge {
+            padding: 0.75rem;
+            text-align: center;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .spot-occupied {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+
+        .spot-free {
+            background: #d1fae5;
+            color: #059669;
+        }
+
+        .loading, .error-message {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-secondary);
+        }
+
+        .error-message {
+            background: #fee2e2;
+            color: #dc2626;
+            border-radius: 12px;
+            margin: 1rem 0;
+        }
+
+        .live-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .time-slider-container {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            padding: 1rem;
+            background: #f8fafc;
+            border-radius: 8px;
+        }
+
+        .time-slider-container label {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        #timeSlider {
+            width: 100%;
+            height: 8px;
+            border-radius: 4px;
+            background: linear-gradient(to right, var(--primary-color), #94a3b8);
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        #timeSlider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--primary-color);
+            cursor: pointer;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        #timeSlider::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+            background: var(--primary-color);
+            cursor: pointer;
+            border: none;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+        }
+
+        .slider-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }
+
+        .live-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .live-badge {
+            padding: 0.5rem 1rem;
+            background: #ef4444;
+            color: white;
+            border-radius: 20px;
+            font-size: 0.8rem;
+            font-weight: 700;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.6; }
+        }
+
+        .live-badge.paused {
+            background: #94a3b8;
+            animation: none;
+        }
+
+        /* Video Scrubber Styles */
+        .playback-controls {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .date-selector {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+
+        .date-selector label {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .date-selector select,
+        .date-selector input[type="date"] {
+            padding: 0.75rem;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            font-size: 1rem;
+            flex: 1;
+            min-width: 150px;
+            background: white;
+        }
+
+        .date-selector select {
+            cursor: pointer;
+        }
+
+        .date-selector select:hover {
+            border-color: var(--primary-color);
+        }
+
+        .video-viewer {
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+            aspect-ratio: 16 / 9;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+
+        .video-viewer img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .viewer-placeholder {
+            text-align: center;
+            color: #94a3b8;
+        }
+
+        .playback-info {
+            display: flex;
+            justify-content: space-around;
+            gap: 1rem;
+            padding: 1rem;
+            background: #f8fafc;
+            border-radius: 8px;
+        }
+
+        .info-item {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 600;
+        }
+
+        .info-icon {
+            font-size: 1.2rem;
+        }
+
+        .scrubber-container {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .scrubber-timeline {
+            height: 40px;
+            background: #f1f5f9;
+            border-radius: 6px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        #scrubber {
+            width: 100%;
+            height: 12px;
+            border-radius: 6px;
+            background: linear-gradient(to right, var(--primary-color), #94a3b8);
+            outline: none;
+            -webkit-appearance: none;
+            appearance: none;
+            cursor: pointer;
+        }
+
+        #scrubber::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: var(--primary-color);
+            cursor: grab;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+            transition: transform 0.1s;
+        }
+
+        #scrubber::-webkit-slider-thumb:active {
+            cursor: grabbing;
+            transform: scale(1.2);
+        }
+
+        #scrubber::-moz-range-thumb {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: var(--primary-color);
+            cursor: grab;
+            border: none;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.3);
+        }
+
+        .scrubber-labels {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            padding: 0 0.5rem;
+        }
+
+        .player-controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 1rem;
+            padding: 1rem;
+            background: #f8fafc;
+            border-radius: 8px;
+        }
+
+        .control-btn {
+            background: var(--primary-color);
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            font-size: 1.2rem;
+            cursor: pointer;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .control-btn:hover {
+            background: #1e40af;
+            transform: scale(1.1);
+        }
+
+        .control-btn:active {
+            transform: scale(0.95);
+        }
+
+        #playPauseBtn {
+            width: 60px;
+            height: 60px;
+            font-size: 1.5rem;
+            background: var(--success-color);
+        }
+
+        #playPauseBtn:hover {
+            background: #059669;
+        }
+
+        .speed-indicator {
+            background: #e2e8f0;
+            padding: 0.5rem 1rem;
+            border-radius: 20px;
+            font-weight: 600;
+            color: var(--text-primary);
+            min-width: 50px;
+            text-align: center;
+        }
+
+        .timeline-marker {
+            position: absolute;
+            top: 0;
+            bottom: 0;
+            background: var(--primary-color);
+            opacity: 0.3;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        .timeline-marker:hover {
+            opacity: 0.5;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 3rem;
+            color: var(--text-secondary);
+            background: var(--background);
+            border-radius: 12px;
+            margin: 2rem 0;
+        }
+
+        .empty-state-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+        }
+    </style>
+</head>
+<body>
+    <nav class="navbar">
+        <div class="nav-container">
+            <h1>🚗 Parking Detection System</h1>
+            <div class="nav-links">
+                <a href="/">Dashboard</a>
+                <a href="/media-archive" class="active">Media Archive</a>
+                <a href="/admin">Admin</a>
+            </div>
+        </div>
+    </nav>
+
+    <div class="media-archive-container">
+        <div class="page-header">
+            <h2>📹 Media Archive</h2>
+            <p>Browse and playback historical parking lot footage</p>
+        </div>
+
+        <!-- Video Scrubber Interface -->
+        <div class="controls-card">
+            <h3>📹 Security Camera Playback</h3>
+            <p style="color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 1rem;">
+                Scrub through captured footage like a security camera DVR
+            </p>
+            
+            <div class="playback-controls">
+                <div class="date-selector">
+                    <label>Parking Lot:</label>
+                    <select id="lotSelector" onchange="onLotChanged()">
+                        <option value="">Loading lots...</option>
+                    </select>
+                    <label>Date:</label>
+                    <input type="date" id="dateInput" />
+                    <button class="btn btn-secondary" onclick="loadToday()">📅 Today</button>
+                </div>
+
+                <!-- Main Image Viewer -->
+                <div class="video-viewer" id="videoViewer" style="position: relative;">
+                    <canvas id="overlayCanvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10;"></canvas>
+                    <div class="viewer-placeholder">
+                        <div class="empty-state-icon">🎬</div>
+                        <h3>Select a date to begin playback</h3>
+                        <p>Choose a date above to load available footage</p>
+                    </div>
+                </div>
+
+                <!-- Playback Info -->
+                <div class="playback-info" id="playbackInfo" style="display: none;">
+                    <div class="info-item">
+                        <span class="info-icon">🕐</span>
+                        <span id="currentTime">--:--:--</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-icon">🚗</span>
+                        <span id="vehicleCount">-- vehicles</span>
+                    </div>
+                    <div class="info-item">
+                        <span class="info-icon">🅿️</span>
+                        <span id="occupancy">-- / --</span>
+                    </div>
+                </div>
+
+                <!-- Timeline Scrubber -->
+                <div class="scrubber-container" id="scrubberContainer" style="display: none;">
+                    <div class="scrubber-timeline" id="scrubberTimeline"></div>
+                    <input type="range" id="scrubber" min="0" max="100" value="0" step="1" oninput="scrubToPosition()">
+                    <div class="scrubber-labels">
+                        <span>00:00</span>
+                        <span>06:00</span>
+                        <span>12:00</span>
+                        <span>18:00</span>
+                        <span>23:59</span>
+                    </div>
+                </div>
+
+                <!-- Playback Controls -->
+                <div class="player-controls" id="playerControls" style="display: none;">
+                    <button class="control-btn" onclick="previousFrame()">⏮️</button>
+                    <button class="control-btn" onclick="changePlaybackSpeed(-1)">⏪</button>
+                    <button class="control-btn" id="playPauseBtn" onclick="togglePlayback()">▶️</button>
+                    <button class="control-btn" onclick="changePlaybackSpeed(1)">⏩</button>
+                    <button class="control-btn" onclick="nextFrame()">⏭️</button>
+                    <div class="speed-indicator" id="speedIndicator">1x</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal -->
+    <div id="mediaModal" class="modal" onclick="closeModal(event)">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 class="modal-title" id="modalTitle">Media Details</h2>
+                <button class="close-modal" onclick="closeModal()">&times;</button>
+            </div>
+            <img id="modalImage" class="modal-image" src="" alt="Full size media">
+            <div class="modal-info-card" id="modalInfo"></div>
+        </div>
+    </div>
+
+    <script>
+        let storageStats = {};
+        let currentLotId = null;
+        let selectedDate = null;
+        let availableLots = [];
+
+        // Load lots on page load
+        window.addEventListener('DOMContentLoaded', () => {
+            loadLots();
+            document.getElementById('dateInput').valueAsDate = new Date();
+        });
+
+        async function loadLots() {
+            try {
+                const response = await fetch('/api/lots');
+                const data = await response.json();
+                
+                if (data.error) {
+                    console.error('Failed to load lots:', data.error);
+                    return;
+                }
+
+                availableLots = data.lots || [];
+                displayLotSelector();
+                
+                // Set first lot as default
+                if (availableLots.length > 0) {
+                    currentLotId = availableLots[0].id;
+                    document.getElementById('lotSelector').value = currentLotId;
+                }
+            } catch (error) {
+                console.error('Failed to load lots:', error);
+            }
+        }
+
+        function displayLotSelector() {
+            const selector = document.getElementById('lotSelector');
+            
+            if (availableLots.length === 0) {
+                selector.innerHTML = '<option value="">No lots configured</option>';
+                return;
+            }
+
+            selector.innerHTML = availableLots.map(lot => 
+                `<option value="${lot.id}">${lot.public_id} - ${lot.name || 'Parking Lot'} (ID: ${lot.id})</option>`
+            ).join('');
+            
+            console.log('Available lots:', availableLots);
+        }
+
+        function onLotChanged() {
+            const selector = document.getElementById('lotSelector');
+            currentLotId = parseInt(selector.value);
+            
+            // Reset playback
+            allMediaForDay = [];
+            currentMediaIndex = 0;
+            imageCache = {};
+            if (isPlaying) togglePlayback();
+            
+            // Reload footage if date is selected
+            const dateInput = document.getElementById('dateInput');
+            if (dateInput.value) {
+                loadDayFootage();
+            }
+        }
+
+        function loadToday() {
+            document.getElementById('dateInput').valueAsDate = new Date();
+            loadTimeline();
+        }
+
+        async function loadTimeline() {
+            const dateInput = document.getElementById('dateInput');
+            const date = dateInput.value;
+            
+            if (!date) {
+                alert('Please select a date');
+                return;
+            }
+
+            selectedDate = date;
+            
+            try {
+                const response = await fetch(`/api/media/${currentLotId}/timeline?date=${date}`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    showError(data.error);
+                    return;
+                }
+
+                displayTimeline(data.timeline);
+            } catch (error) {
+                showError('Failed to load timeline: ' + error.message);
+            }
+        }
+
+        function displayTimeline(timeline) {
+            const card = document.getElementById('timelineCard');
+            const grid = document.getElementById('timelineGrid');
+            
+            if (!timeline || timeline.length === 0) {
+                grid.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📅</div><h3>No media found for this date</h3><p>Try selecting a different date or ensure detection is running</p></div>';
+                card.style.display = 'block';
+                return;
+            }
+
+            card.style.display = 'block';
+            
+            // Create 24-hour timeline with actual data merged in
+            const hours = Array.from({length: 24}, (_, i) => {
+                const hourData = timeline.find(h => h.hour === i);
+                return {
+                    hour: i,
+                    total_count: hourData?.total_count || 0,
+                    image_count: hourData?.image_count || 0,
+                    video_count: hourData?.video_count || 0
+                };
+            });
+            
+            grid.innerHTML = hours.map(hour => {
+                const hasMedia = hour.total_count > 0;
+                const classes = hasMedia ? 'timeline-hour has-media' : 'timeline-hour';
+                
+                return `
+                    <div class="${classes}" onclick="loadHourMedia(${hour.hour})" data-hour="${hour.hour}" 
+                         title="${hour.total_count} items (${hour.image_count} images, ${hour.video_count} videos)">
+                        <div class="hour-label">${hour.hour.toString().padStart(2, '0')}:00</div>
+                        ${hasMedia ? `<div class="media-count">${hour.total_count}</div>` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
+        async function loadHourMedia(hour) {
+            if (!selectedDate) return;
+            
+            // Highlight selected hour
+            document.querySelectorAll('.timeline-hour').forEach(el => {
+                el.classList.remove('selected');
+            });
+            document.querySelector(`[data-hour="${hour}"]`).classList.add('selected');
+            
+            const startTime = `${selectedDate}T${hour.toString().padStart(2, '0')}:00:00`;
+            const endTime = `${selectedDate}T${(hour + 1).toString().padStart(2, '0')}:00:00`;
+            
+            try {
+                const response = await fetch(`/api/media/${currentLotId}/timerange?start_time=${startTime}&end_time=${endTime}`);
+                const data = await response.json();
+                
+                if (data.error) {
+                    showError(data.error);
+                    return;
+                }
+
+                displayMedia(data.media);
+            } catch (error) {
+                showError('Failed to load media: ' + error.message);
+            }
+        }
+
+        function displayMedia(mediaList) {
+            const container = document.getElementById('mediaContainer');
+            
+            if (!mediaList || mediaList.length === 0) {
+                container.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📷</div><h3>No media found</h3></div>';
+                return;
+            }
+
+            container.innerHTML = `
+                <div class="media-grid">
+                    ${mediaList.map(media => `
+                        <div class="media-item" onclick="openModal(${media.id})">
+                            <img class="media-thumbnail" src="/api/media/${media.id}/thumbnail" alt="Media thumbnail">
+                            <div class="media-info">
+                                <div class="media-time">${new Date(media.timestamp).toLocaleTimeString()}</div>
+                                <div class="media-details">
+                                    <span>${media.metadata?.occupied_spots || 0}/${media.metadata?.total_spots || 0} occupied</span>
+                                    <span>${media.metadata?.detections_count || 0} vehicles</span>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+        }
+
+        async function openModal(mediaId) {
+            const modal = document.getElementById('mediaModal');
+            const modalImage = document.getElementById('modalImage');
+            const modalTitle = document.getElementById('modalTitle');
+            const modalInfo = document.getElementById('modalInfo');
+            
+            modal.style.display = 'block';
+            modalImage.src = `/api/media/${mediaId}/file`;
+            
+            try {
+                const response = await fetch(`/api/media/${currentLotId}/parking-state?timestamp=${Date.now()}`);
+                const data = await response.json();
+                
+                modalInfo.innerHTML = `
+                    <div class="info-row">
+                        <span class="info-label">Timestamp</span>
+                        <span class="info-value">${new Date().toLocaleString()}</span>
+                    </div>
+                    <div class="info-row">
+                        <span class="info-label">Parking Lot</span>
+                        <span class="info-value">LOT-${String(currentLotId).padStart(3, '0')}</span>
+                    </div>
+                `;
+            } catch (error) {
+                console.error('Failed to load parking state:', error);
+            }
+        }
+
+        function closeModal(event) {
+            const modal = document.getElementById('mediaModal');
+            if (!event || event.target.id === 'mediaModal' || event.target.classList.contains('close-modal')) {
+                modal.style.display = 'none';
+            }
+        }
+
+        async function cleanupStorage() {
+            if (!confirm('This will delete old media to free up space. Continue?')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch('/api/media/storage/cleanup', {
+                    method: 'POST'
+                });
+                const data = await response.json();
+                
+                if (data.error) {
+                    alert('Cleanup failed: ' + data.error);
+                } else {
+                    alert(`Cleanup complete! Freed ${data.bytes_freed_mb?.toFixed(2) || 0} MB`);
+                }
+            } catch (error) {
+                alert('Cleanup failed: ' + error.message);
+            }
+        }
+
+        function showError(message) {
+            const container = document.getElementById('mediaContainer');
+            container.innerHTML = `<div class="error-message">⚠️ ${message}</div>`;
+        }
+
+        // Close modal on Escape key
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeModal();
+        });
+
+        // Initialize date input to today
+        document.addEventListener('DOMContentLoaded', () => {
+            const dateInput = document.getElementById('dateInput');
+            dateInput.valueAsDate = new Date();
+            dateInput.addEventListener('change', loadDayFootage);
+        });
+
+        // ============================================
+        // VIDEO SCRUBBER FUNCTIONALITY
+        // ============================================
+        let allMediaForDay = [];
+        let currentMediaIndex = 0;
+        let isPlaying = false;
+        let playbackInterval = null;
+        let playbackSpeed = 1; // Speed multiplier
+
+        function loadToday() {
+            document.getElementById('dateInput').valueAsDate = new Date();
+            loadDayFootage();
+        }
+
+        async function loadDayFootage() {
+            const dateInput = document.getElementById('dateInput');
+            const date = dateInput.value;
+            
+            if (!date) {
+                alert('Please select a date');
+                return;
+            }
+
+            if (!currentLotId) {
+                showError('Please select a parking lot');
+                return;
+            }
+
+            try {
+                // Get all media for the entire day
+                const startTime = `${date}T00:00:00`;
+                const endTime = `${date}T23:59:59`;
+                
+                const response = await fetch(
+                    `/api/media/${currentLotId}/timerange?start_time=${startTime}&end_time=${endTime}&limit=1000`
+                );
+                const data = await response.json();
+
+                if (data.error) {
+                    showError(data.error);
+                    return;
+                }
+
+                allMediaForDay = data.media || [];
+                
+                if (allMediaForDay.length === 0) {
+                    showNoFootage();
+                    return;
+                }
+
+                // Sort by timestamp
+                allMediaForDay.sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp));
+                
+                // Set up scrubber
+                setupScrubber();
+                
+                // Show first frame
+                currentMediaIndex = allMediaForDay.length - 1; // Start at most recent
+                displayCurrentFrame();
+                
+            } catch (error) {
+                showError('Failed to load footage: ' + error.message);
+            }
+        }
+
+        function setupScrubber() {
+            document.getElementById('scrubberContainer').style.display = 'flex';
+            document.getElementById('playerControls').style.display = 'flex';
+            document.getElementById('playbackInfo').style.display = 'flex';
+            
+            const scrubber = document.getElementById('scrubber');
+            scrubber.max = allMediaForDay.length - 1;
+            scrubber.value = allMediaForDay.length - 1;
+            
+            // Update timeline labels with actual time range
+            updateTimelineLabels();
+            
+            // Draw timeline markers
+            drawTimelineMarkers();
+        }
+
+        function updateTimelineLabels() {
+            if (allMediaForDay.length === 0) return;
+            
+            const firstTime = new Date(allMediaForDay[0].timestamp);
+            const lastTime = new Date(allMediaForDay[allMediaForDay.length - 1].timestamp);
+            
+            const labels = document.querySelectorAll('.scrubber-labels span');
+            if (labels.length >= 5) {
+                labels[0].textContent = firstTime.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+                labels[1].textContent = '';
+                labels[2].textContent = `${allMediaForDay.length} captures`;
+                labels[3].textContent = '';
+                labels[4].textContent = lastTime.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+            }
+        }
+
+        function drawTimelineMarkers() {
+            const timeline = document.getElementById('scrubberTimeline');
+            timeline.innerHTML = '';
+            
+            if (allMediaForDay.length === 0) return;
+            
+            // Get time range
+            const firstTime = new Date(allMediaForDay[0].timestamp).getTime();
+            const lastTime = new Date(allMediaForDay[allMediaForDay.length - 1].timestamp).getTime();
+            const timeRange = lastTime - firstTime;
+            
+            if (timeRange === 0) {
+                // Only one capture or all at same time
+                const marker = document.createElement('div');
+                marker.className = 'timeline-marker';
+                marker.style.left = '50%';
+                marker.style.width = '2%';
+                marker.title = `1 capture`;
+                timeline.appendChild(marker);
+                return;
+            }
+            
+            // Group captures into segments (divide timeline into 50 segments)
+            const segments = 50;
+            const segmentCounts = new Array(segments).fill(0);
+            
+            allMediaForDay.forEach(media => {
+                const mediaTime = new Date(media.timestamp).getTime();
+                const position = (mediaTime - firstTime) / timeRange;
+                const segmentIndex = Math.floor(position * (segments - 1));
+                segmentCounts[segmentIndex]++;
+            });
+            
+            // Draw markers for segments with captures
+            segmentCounts.forEach((count, index) => {
+                if (count > 0) {
+                    const marker = document.createElement('div');
+                    marker.className = 'timeline-marker';
+                    const position = (index / segments) * 100;
+                    const width = (1 / segments) * 100;
+                    marker.style.left = position + '%';
+                    marker.style.width = width + '%';
+                    marker.title = `${count} capture${count > 1 ? 's' : ''}`;
+                    timeline.appendChild(marker);
+                }
+            });
+        }
+
+        function scrubToPosition() {
+            const scrubber = document.getElementById('scrubber');
+            currentMediaIndex = parseInt(scrubber.value);
+            displayCurrentFrame();
+            
+            // Pause if playing
+            if (isPlaying) {
+                togglePlayback();
+            }
+        }
+
+        let imageCache = {};
+        let currentImage = null;
+        let overlayCanvas = null;
+        let overlayCtx = null;
+
+        function displayCurrentFrame() {
+            if (allMediaForDay.length === 0) return;
+            
+            const media = allMediaForDay[currentMediaIndex];
+            const viewer = document.getElementById('videoViewer');
+            const metadata = media.metadata || {};
+            const isVideo = media.media_type === 'video';
+            
+            // Preload and display media to prevent flashing
+            const mediaUrl = `/api/media/${media.id}/file`;
+            
+            if (!imageCache[media.id]) {
+                if (isVideo) {
+                    // Handle video playback
+                    const existingCanvas = viewer.querySelector('#overlayCanvas');
+                    viewer.innerHTML = '';
+                    
+                    const videoElement = document.createElement('video');
+                    videoElement.controls = true;
+                    videoElement.autoplay = false;
+                    videoElement.style.width = '100%';
+                    videoElement.style.height = '100%';
+                    videoElement.style.objectFit = 'contain';
+                    videoElement.style.display = 'block';
+                    videoElement.src = mediaUrl;
+                    viewer.appendChild(videoElement);
+                    
+                    // Note: Video overlay is more complex due to dynamic frames
+                    // We'll skip overlay for videos for now
+                    imageCache[media.id] = videoElement;
+                } else {
+                    // Handle image display
+                    const img = new Image();
+                    img.onload = function() {
+                        // Only update if this is still the current frame
+                        if (allMediaForDay[currentMediaIndex]?.id === media.id) {
+                            // Clear viewer but keep canvas
+                            const existingCanvas = viewer.querySelector('#overlayCanvas');
+                            viewer.innerHTML = '';
+                            
+                            const displayImg = img.cloneNode();
+                            displayImg.style.width = '100%';
+                            displayImg.style.height = '100%';
+                            displayImg.style.objectFit = 'contain';
+                            displayImg.style.display = 'block';
+                            viewer.appendChild(displayImg);
+                            
+                            // Create or restore canvas overlay on top
+                            if (existingCanvas) {
+                                viewer.appendChild(existingCanvas);
+                                overlayCanvas = existingCanvas;
+                                overlayCtx = existingCanvas.getContext('2d');
+                            } else {
+                                const canvas = document.createElement('canvas');
+                                canvas.id = 'overlayCanvas';
+                                canvas.style.cssText = 'position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10;';
+                                viewer.appendChild(canvas);
+                                overlayCanvas = canvas;
+                                overlayCtx = canvas.getContext('2d');
+                            }
+                            
+                            // Draw spot overlay after image loads
+                            setTimeout(() => drawSpotOverlay(media), 100);
+                        }
+                    };
+                    img.src = mediaUrl;
+                    imageCache[media.id] = img;
+                }
+            } else {
+                // Media already cached, display immediately
+                if (isVideo) {
+                    const existingCanvas = viewer.querySelector('#overlayCanvas');
+                    viewer.innerHTML = '';
+                    
+                    const videoElement = imageCache[media.id].cloneNode();
+                    videoElement.controls = true;
+                    videoElement.style.width = '100%';
+                    videoElement.style.height = '100%';
+                    videoElement.style.objectFit = 'contain';
+                    videoElement.style.display = 'block';
+                    viewer.appendChild(videoElement);
+                } else {
+                    // Image already cached, display immediately
+                    const existingCanvas = viewer.querySelector('#overlayCanvas');
+                    viewer.innerHTML = '';
+                    
+                    const displayImg = imageCache[media.id].cloneNode();
+                    displayImg.style.width = '100%';
+                    displayImg.style.height = '100%';
+                    displayImg.style.objectFit = 'contain';
+                    displayImg.style.display = 'block';
+                    viewer.appendChild(displayImg);
+                    
+                    // Create or restore canvas overlay on top
+                    if (existingCanvas) {
+                        viewer.appendChild(existingCanvas);
+                        overlayCanvas = existingCanvas;
+                        overlayCtx = overlayCanvas.getContext('2d');
+                    } else {
+                        const canvas = document.createElement('canvas');
+                        canvas.id = 'overlayCanvas';
+                        canvas.style.cssText = 'position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 10;';
+                        viewer.appendChild(canvas);
+                        overlayCanvas = canvas;
+                        overlayCtx = overlayCanvas.getContext('2d');
+                    }
+                    
+                    // Draw spot overlay
+                    setTimeout(() => drawSpotOverlay(media), 100);
+                }
+            }
+            
+            // Preload next and previous media (images only for now)
+            if (currentMediaIndex < allMediaForDay.length - 1) {
+                const nextMedia = allMediaForDay[currentMediaIndex + 1];
+                if (!imageCache[nextMedia.id] && nextMedia.media_type !== 'video') {
+                    const img = new Image();
+                    img.src = `/api/media/${nextMedia.id}/file`;
+                    imageCache[nextMedia.id] = img;
+                }
+            }
+            if (currentMediaIndex > 0) {
+                const prevMedia = allMediaForDay[currentMediaIndex - 1];
+                if (!imageCache[prevMedia.id] && prevMedia.media_type !== 'video') {
+                    const img = new Image();
+                    img.src = `/api/media/${prevMedia.id}/file`;
+                    imageCache[prevMedia.id] = img;
+                }
+            }
+            
+            // Update info
+            const timestamp = new Date(media.timestamp);
+            const mediaTypeIcon = media.media_type === 'video' ? '🎥' : '📷';
+            document.getElementById('currentTime').textContent = `${mediaTypeIcon} ${timestamp.toLocaleTimeString()}`;
+            document.getElementById('vehicleCount').textContent = `${metadata.detections_count || 0} vehicles`;
+            document.getElementById('occupancy').textContent = `${metadata.occupied_spots || 0} / ${metadata.total_spots || 0}`;
+            
+            // Update scrubber position
+            document.getElementById('scrubber').value = currentMediaIndex;
+        }
+
+        async function drawSpotOverlay(media) {
+            if (!overlayCanvas || !overlayCtx || !currentLotId) return;
+            
+            // Skip overlay for videos (would need frame-by-frame processing)
+            if (media.media_type === 'video') {
+                return;
+            }
+            
+            try {
+                // Fetch parking state at this timestamp
+                const response = await fetch(`/api/media/${currentLotId}/parking-state?timestamp=${encodeURIComponent(media.timestamp)}`);
+                if (!response.ok) {
+                    console.warn('Failed to fetch parking state:', response.status);
+                    return;
+                }
+                
+                const data = await response.json();
+                const spots = data.spots || [];
+                
+                console.log('Received spots data:', spots.length, 'spots');
+                
+                if (spots.length === 0) {
+                    console.warn('No spots returned from API');
+                    return;
+                }
+                
+                // Get the displayed image dimensions
+                const img = document.querySelector('#videoViewer img');
+                if (!img) {
+                    console.warn('No image found in viewer');
+                    return;
+                }
+                
+                // Wait for image to be fully loaded
+                if (!img.complete) {
+                    img.onload = () => drawSpotOverlay(media);
+                    return;
+                }
+                
+                const imgRect = img.getBoundingClientRect();
+                const viewerRect = document.getElementById('videoViewer').getBoundingClientRect();
+                
+                console.log('Image rect:', imgRect.width, 'x', imgRect.height);
+                console.log('Image natural size:', img.naturalWidth, 'x', img.naturalHeight);
+                
+                // Set canvas size to match the displayed image
+                overlayCanvas.width = imgRect.width;
+                overlayCanvas.height = imgRect.height;
+                
+                // Clear canvas
+                overlayCtx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+                
+                // Debug: Draw red border around canvas to verify it's working
+                overlayCtx.strokeStyle = 'red';
+                overlayCtx.lineWidth = 4;
+                overlayCtx.strokeRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+                
+                // Get scale based on actual image dimensions
+                const scaleX = imgRect.width / img.naturalWidth;
+                const scaleY = imgRect.height / img.naturalHeight;
+                
+                console.log('Scale:', scaleX, 'x', scaleY);
+                
+                // Debug: Log first spot's polygon
+                if (spots.length > 0 && spots[0].polygon) {
+                    console.log('First spot polygon:', spots[0].polygon);
+                    console.log('First point structure:', spots[0].polygon[0]);
+                    // Handle both array [x, y] and object {x, y} formats
+                    const firstPoint = spots[0].polygon[0];
+                    if (Array.isArray(firstPoint)) {
+                        console.log('Array format:', firstPoint);
+                    } else if (firstPoint.x !== undefined) {
+                        console.log('Object format: x=' + firstPoint.x + ', y=' + firstPoint.y);
+                        console.log('Coordinates are normalized (0-1), converting to pixels');
+                    }
+                }
+                
+                // Draw each spot
+                let drawnCount = 0;
+                spots.forEach(spot => {
+                    if (!spot.polygon || spot.polygon.length < 3) {
+                        console.warn('Spot has no valid polygon:', spot.spot_number);
+                        return;
+                    }
+                    
+                    drawnCount++;
+                    
+                    // Determine color and styling based on occupancy
+                    const isFree = spot.occupied === false;
+                    const isUnknown = spot.occupied === null || !spot.has_history;
+                    
+                    let color, fillColor, lineWidth;
+                    
+                    if (isUnknown) {
+                        // No data available for this spot at this time (gray)
+                        color = '#9ca3af';
+                        fillColor = 'rgba(156, 163, 175, 0.2)';
+                        lineWidth = 2;
+                    } else if (isFree) {
+                        // Free (green)
+                        color = '#10b981';
+                        fillColor = 'rgba(16, 185, 129, 0.2)';
+                        lineWidth = 2;
+                    } else {
+                        // Occupied (red)
+                        color = '#ef4444';
+                        fillColor = 'rgba(239, 68, 68, 0.2)';
+                        lineWidth = 2;
+                    }
+                    
+                    // Convert normalized coordinates to pixel coordinates
+                    const pixelPolygon = spot.polygon.map(point => {
+                        let x, y;
+                        if (Array.isArray(point)) {
+                            x = point[0];
+                            y = point[1];
+                        } else {
+                            x = point.x;
+                            y = point.y;
+                        }
+                        
+                        // If normalized (0-1), convert to pixels
+                        if (x <= 1 && y <= 1) {
+                            x = x * img.naturalWidth;
+                            y = y * img.naturalHeight;
+                        }
+                        
+                        // Scale to displayed size
+                        return {
+                            x: x * scaleX,
+                            y: y * scaleY
+                        };
+                    });
+                    
+                    // Fill polygon
+                    overlayCtx.fillStyle = fillColor;
+                    overlayCtx.beginPath();
+                    overlayCtx.moveTo(pixelPolygon[0].x, pixelPolygon[0].y);
+                    for (let i = 1; i < pixelPolygon.length; i++) {
+                        overlayCtx.lineTo(pixelPolygon[i].x, pixelPolygon[i].y);
+                    }
+                    overlayCtx.closePath();
+                    overlayCtx.fill();
+                    
+                    // Draw border
+                    overlayCtx.strokeStyle = color;
+                    overlayCtx.lineWidth = lineWidth;
+                    overlayCtx.setLineDash([]); // Solid line
+                    overlayCtx.stroke();
+                    
+                    // Calculate center for label
+                    const centerX = pixelPolygon.reduce((sum, p) => sum + p.x, 0) / pixelPolygon.length;
+                    const centerY = pixelPolygon.reduce((sum, p) => sum + p.y, 0) / pixelPolygon.length;
+                    
+                    // Draw spot number label with background
+                    overlayCtx.font = 'bold 12px Arial';
+                    overlayCtx.textAlign = 'center';
+                    overlayCtx.textBaseline = 'middle';
+                    
+                    const spotLabel = spot.spot_number.replace('SPACE-', '');
+                    const textWidth = overlayCtx.measureText(spotLabel).width;
+                    
+                    // Background rectangle in spot color
+                    overlayCtx.fillStyle = color;
+                    overlayCtx.fillRect(centerX - textWidth/2 - 4, centerY - 8, textWidth + 8, 16);
+                    
+                    // White text
+                    overlayCtx.fillStyle = '#fff';
+                    overlayCtx.fillText(spotLabel, centerX, centerY);
+                    
+                    // Add "?" badge for spots with no history
+                    if (isUnknown) {
+                        // Find top-right corner
+                        const topRight = pixelPolygon.reduce((max, p) => p.x > max.x ? p : max, pixelPolygon[0]);
+                        overlayCtx.fillStyle = 'rgba(156, 163, 175, 0.8)';
+                        overlayCtx.beginPath();
+                        overlayCtx.arc(topRight.x - 8, topRight.y + 8, 7, 0, Math.PI * 2);
+                        overlayCtx.fill();
+                        overlayCtx.fillStyle = '#fff';
+                        overlayCtx.font = 'bold 9px Arial';
+                        overlayCtx.fillText('?', topRight.x - 8, topRight.y + 8);
+                    }
+                    
+                    // Draw confidence info if occupied
+                    if (!isFree && !isUnknown && spot.confidence > 0) {
+                        overlayCtx.font = '10px Arial';
+                        const confLabel = `${(spot.confidence * 100).toFixed(0)}%`;
+                        
+                        // Background for confidence
+                        overlayCtx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                        const confTextWidth = overlayCtx.measureText(confLabel).width;
+                        overlayCtx.fillRect(centerX - confTextWidth/2 - 3, centerY + 12, confTextWidth + 6, 14);
+                        
+                        overlayCtx.fillStyle = '#fff';
+                        overlayCtx.fillText(confLabel, centerX, centerY + 19);
+                    }
+                });
+                
+                console.log('Drew', drawnCount, 'spots on overlay');
+                
+            } catch (error) {
+                console.error('Error drawing spot overlay:', error);
+            }
+        }
+
+        function togglePlayback() {
+            isPlaying = !isPlaying;
+            const btn = document.getElementById('playPauseBtn');
+            
+            if (isPlaying) {
+                btn.textContent = '⏸️';
+                startPlayback();
+            } else {
+                btn.textContent = '▶️';
+                stopPlayback();
+            }
+        }
+
+        function startPlayback() {
+            if (playbackInterval) clearInterval(playbackInterval);
+            
+            // Calculate interval based on speed (1x = 1 frame per second)
+            const intervalMs = 1000 / Math.abs(playbackSpeed);
+            
+            playbackInterval = setInterval(() => {
+                if (playbackSpeed > 0) {
+                    nextFrame();
+                } else {
+                    previousFrame();
+                }
+            }, intervalMs);
+        }
+
+        function stopPlayback() {
+            if (playbackInterval) {
+                clearInterval(playbackInterval);
+                playbackInterval = null;
+            }
+        }
+
+        function nextFrame() {
+            if (currentMediaIndex < allMediaForDay.length - 1) {
+                currentMediaIndex++;
+                displayCurrentFrame();
+            } else if (isPlaying) {
+                // Loop back to beginning
+                currentMediaIndex = 0;
+                displayCurrentFrame();
+            }
+        }
+
+        function previousFrame() {
+            if (currentMediaIndex > 0) {
+                currentMediaIndex--;
+                displayCurrentFrame();
+            } else if (isPlaying) {
+                // Loop to end
+                currentMediaIndex = allMediaForDay.length - 1;
+                displayCurrentFrame();
+            }
+        }
+
+        function changePlaybackSpeed(direction) {
+            // Stop current playback
+            if (isPlaying) {
+                stopPlayback();
+            }
+            
+            // Adjust speed: -4x, -2x, -1x, 0.5x, 1x, 2x, 4x
+            const speeds = [-4, -2, -1, 0.5, 1, 2, 4];
+            let currentIndex = speeds.indexOf(playbackSpeed);
+            
+            if (direction > 0) {
+                currentIndex = Math.min(currentIndex + 1, speeds.length - 1);
+            } else {
+                currentIndex = Math.max(currentIndex - 1, 0);
+            }
+            
+            playbackSpeed = speeds[currentIndex];
+            document.getElementById('speedIndicator').textContent = 
+                playbackSpeed > 0 ? `${playbackSpeed}x ▶` : `${Math.abs(playbackSpeed)}x ◀`;
+            
+            // Resume playback if it was playing
+            if (isPlaying) {
+                startPlayback();
+            } else {
+                // Just set playing state and start
+                isPlaying = true;
+                document.getElementById('playPauseBtn').textContent = '⏸️';
+                startPlayback();
+            }
+        }
+
+        function showNoFootage() {
+            const viewer = document.getElementById('videoViewer');
+            viewer.innerHTML = `
+                <div class="viewer-placeholder">
+                    <div class="empty-state-icon">📭</div>
+                    <h3>No footage available</h3>
+                    <p>No captures found for this date</p>
+                </div>
+            `;
+            document.getElementById('scrubberContainer').style.display = 'none';
+            document.getElementById('playerControls').style.display = 'none';
+            document.getElementById('playbackInfo').style.display = 'none';
+        }
+
+        function showError(message) {
+            const viewer = document.getElementById('videoViewer');
+            viewer.innerHTML = `
+                <div class="viewer-placeholder">
+                    <div class="empty-state-icon">⚠️</div>
+                    <h3>Error</h3>
+                    <p>${message}</p>
+                </div>
+            `;
+        }
+
+        // Keyboard shortcuts
+        document.addEventListener('keydown', (e) => {
+            if (allMediaForDay.length === 0) return;
+            
+            // Arrow keys for frame navigation
+            if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                previousFrame();
+            }
+            if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                nextFrame();
+            }
+            // Space for play/pause
+            if (e.key === ' ') {
+                e.preventDefault();
+                togglePlayback();
+            }
+        });
+    </script>
+</body>
+</html>

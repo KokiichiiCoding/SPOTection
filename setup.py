@@ -1,276 +1,512 @@
 """
-System Setup and Initialization
--------------------------------
-This script prepares the Spotection system for its first run.
-It performs the following actions:
-1.  Creates the `config.json` file from the template if it doesn't exist.
-2.  Initializes the PostgreSQL database by creating all necessary tables.
-3.  Creates a default parking lot (`LOT-001`) if it doesn't already exist.
+Spotection System Automated Setup
+---------------------------------
+This script performs complete system setup for end users using modular components.
+
+Usage: python setup.py
 """
 
-import os
 import sys
-import json
+import os
 import subprocess
+import platform
 
-def check_and_fix_environment():
-    """
-    Checks if required packages are available. If not, tries to use the correct interpreter.
-    Returns the correct Python executable to use.
-    """
+def is_venv():
+    """Check if running in a virtual environment"""
+    return (hasattr(sys, 'real_prefix') or
+            (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix))
+
+def find_existing_venv():
+    """Find existing virtual environment in common locations"""
+    venv_names = ['.venv', 'venv', '.virtualenv', 'env']
+    for name in venv_names:
+        if os.path.exists(name):
+            # Check if it's actually a venv
+            is_windows = platform.system() == "Windows"
+            python_path = os.path.join(name, "Scripts" if is_windows else "bin", 
+                                      "python.exe" if is_windows else "python")
+            if os.path.exists(python_path):
+                return name, python_path
+    return None, None
+
+def create_venv(venv_path=".venv"):
+    """Create a new virtual environment"""
+    print(f"📦 Creating virtual environment: {venv_path}")
     try:
-        # Try importing Flask to check if we're in the right environment
-        import flask
-        return sys.executable  # Current interpreter works
-    except ImportError:
-        print("⚠️  Flask not found in current Python interpreter.")
-        print(f"   Current interpreter: {sys.executable}")
+        result = subprocess.run(
+            [sys.executable, "-m", "venv", venv_path],
+            capture_output=True,
+            text=True,
+            timeout=60
+        )
+        if result.returncode != 0:
+            print(f"❌ Failed to create virtual environment:\n{result.stderr}")
+            return None
         
-        # Try to find the correct Python executable
-        potential_pythons = []
-        
-        # Check for virtual environment
-        if os.path.exists('.venv'):
-            if os.name == 'nt':  # Windows
-                venv_python = os.path.join('.venv', 'Scripts', 'python.exe')
-            else:  # Unix-like
-                venv_python = os.path.join('.venv', 'bin', 'python')
-            
-            if os.path.exists(venv_python):
-                potential_pythons.append(venv_python)
-        
-        # Check for conda environment
-        conda_prefix = os.environ.get('CONDA_PREFIX')
-        if conda_prefix:
-            if os.name == 'nt':  # Windows
-                conda_python = os.path.join(conda_prefix, 'python.exe')
-            else:  # Unix-like
-                conda_python = os.path.join(conda_prefix, 'bin', 'python')
-            
-            if os.path.exists(conda_python) and conda_python != sys.executable:
-                potential_pythons.append(conda_python)
-        
-        # Try each potential Python
-        for python_path in potential_pythons:
-            try:
-                # Test if this Python has Flask installed
-                result = subprocess.run(
-                    [python_path, '-c', 'import flask; import sqlalchemy; print("OK")'],
-                    capture_output=True,
-                    text=True,
-                    timeout=5
-                )
-                if result.returncode == 0 and 'OK' in result.stdout:
-                    print(f"✅ Found working Python interpreter: {python_path}")
-                    return python_path
-            except (subprocess.TimeoutExpired, FileNotFoundError):
-                continue
-        
-        # If we get here, no working Python was found
-        print("\n❌ Could not find a Python interpreter with required packages installed.")
-        print("\n📦 Please ensure you have:")
-        print("   1. Activated your virtual environment or conda environment")
-        print("   2. Installed requirements: pip install -r requirements.txt")
-        print("\nThen run setup.py again.")
-        sys.exit(1)
-
-def restart_with_correct_interpreter(correct_python):
-    """Restart this script with the correct Python interpreter."""
-    if correct_python != sys.executable:
-        print(f"\n🔄 Restarting with correct interpreter: {correct_python}")
-        print("="*50 + "\n")
-        
-        # Re-run this script with the correct Python
-        result = subprocess.run([correct_python] + sys.argv)
-        sys.exit(result.returncode)
-
-# Check environment before importing Flask
-correct_python = check_and_fix_environment()
-restart_with_correct_interpreter(correct_python)
-
-# Now we can safely import Flask and other dependencies
-from flask import Flask
-from flaskweb.models import db, ParkingLot
-from sqlalchemy.exc import OperationalError
-
-def create_default_config():
-    """
-    Creates or updates config.json from the template.
-    It preserves existing values in config.json and only adds missing keys from the template.
-    """
-    template_path = 'config.json.template'
-    config_path = 'config.json'
-
-    if not os.path.exists(template_path):
-        print("⚠️ Warning: config.json.template not found. Cannot create or update config.")
+        is_windows = platform.system() == "Windows"
+        python_path = os.path.join(venv_path, "Scripts" if is_windows else "bin",
+                                   "python.exe" if is_windows else "python")
+        print(f"✅ Virtual environment created: {venv_path}")
+        return python_path
+    except Exception as e:
+        print(f"❌ Error creating virtual environment: {e}")
         return None
 
-    with open(template_path, 'r') as f:
-        template_config = json.load(f)
+def activate_and_rerun(python_path):
+    """Rerun the script in the virtual environment"""
+    print(f"\n🔄 Restarting setup in virtual environment...\n")
+    try:
+        # Run setup.py with the venv Python
+        result = subprocess.run(
+            [python_path, "setup.py"],
+            cwd=os.getcwd()
+        )
+        sys.exit(result.returncode)
+    except Exception as e:
+        print(f"❌ Error running setup in virtual environment: {e}")
+        sys.exit(1)
 
-    if not os.path.exists(config_path):
-        print("📄 Creating default config.json from template...")
-        with open(config_path, 'w') as f_config:
-            json.dump(template_config, f_config, indent=4)
-        print("✅ config.json created. Please review it and edit if necessary.")
-        return template_config
-    else:
-        print("👍 config.json already exists. Checking for missing keys...")
-        with open(config_path, 'r') as f_config:
-            try:
-                user_config = json.load(f_config)
-            except json.JSONDecodeError:
-                print("⚠️ Warning: config.json is corrupted. Overwriting with template.")
-                user_config = {}
-
-        # Add missing keys from template to user_config
-        updated = False
-        for key, value in template_config.items():
-            if key not in user_config:
-                user_config[key] = value
-                updated = True
-                print(f"    + Added missing key: '{key}'")
-
-        if updated:
-            with open(config_path, 'w') as f_config:
-                json.dump(user_config, f_config, indent=4)
-            print("✅ config.json has been updated with new keys.")
-        else:
-            print("    No missing keys found.")
-            
-        return user_config
-
-def initialize_database(app):
-    """Creates database tables and a default parking lot."""
-    with app.app_context():
-        print("🔄 Initializing database...")
-        db.create_all()
-        print("✅ Tables created successfully.")
-
-        # Create a default parking lot if it doesn't exist
-        config = app.config.get('MAIN_CONFIG', {})
-        default_lot_id = config.get('default_lot_id', 'LOT-001')
-        
-        existing_lot = ParkingLot.query.filter_by(public_id=default_lot_id).first()
-        if not existing_lot:
-            print(f"🅿️  Creating default parking lot: {default_lot_id}")
-            new_lot = ParkingLot(
-                public_id=default_lot_id,
-                name="Default Parking Lot",
-                total_spots=0  # This will be updated as spots are calibrated/detected
-            )
-            db.session.add(new_lot)
-            db.session.commit()
-            print(f"✅ Default lot '{default_lot_id}' created.")
-        else:
-            print(f"👍 Default lot '{default_lot_id}' already exists.")
-
-def prompt_for_db_config(config):
-    """Prompts the user for database details and updates the config."""
-    print("\n--- Database Configuration ---")
-    print("Please provide your PostgreSQL database details.")
-
-    db_user = input("Enter database user [default: postgres]: ") or "postgres"
-    db_pass = input(f"Enter password for {db_user}: ")
-    db_host = input("Enter database host [default: localhost]: ") or "localhost"
-    db_port = input("Enter database port [default: 5432]: ") or "5432"
-    db_name = input("Enter database name [default: parking_db]: ") or "parking_db"
-
-    database_uri = f"postgresql://{db_user}:{db_pass}@{db_host}:{db_port}/{db_name}"
-    config['database_uri'] = database_uri
-
-    # Save the updated config
-    with open('config.json', 'w') as f:
-        json.dump(config, f, indent=4)
+def install_dependencies(show_progress=True):
+    """Install dependencies from requirements.txt with progress"""
+    print("\n📦 Installing dependencies from requirements.txt...")
+    print("   This may take a few minutes...\n")
     
-    print("\n✅ Database URI has been configured and saved to config.json.")
-    return config
+    if not os.path.exists('requirements.txt'):
+        print("❌ requirements.txt not found!")
+        return False
+    
+    # Verify we're using the right Python
+    print(f"🐍 Using Python: {sys.executable}")
+    print(f"🐍 Python version: {sys.version.split()[0]}")
+    
+    try:
+        # Install with real-time output using explicit pip module
+        if show_progress:
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-r", "requirements.txt", "--upgrade"],
+                text=True,
+                timeout=600  # 10 minute timeout
+            )
+        else:
+            result = subprocess.run(
+                [sys.executable, "-m", "pip", "install", "-r", "requirements.txt", "--upgrade"],
+                capture_output=True,
+                text=True,
+                timeout=600
+            )
+        
+        if result.returncode != 0:
+            print(f"❌ Installation failed")
+            if not show_progress and result.stderr:
+                print(result.stderr)
+            return False
+        
+        # Verify installation
+        print("\n🔍 Verifying installation...")
+        verify_result = subprocess.run(
+            [sys.executable, "-c", "import flask_limiter; import sqlalchemy; print('✓ Key packages imported successfully')"],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
+        
+        if verify_result.returncode != 0:
+            print(f"⚠️  Warning: Package verification failed")
+            print(f"   Error: {verify_result.stderr}")
+            print(f"   Trying to import key modules...")
+            return False
+        else:
+            print(verify_result.stdout.strip())
+        
+        print("\n✅ Dependencies installed successfully\n")
+        return True
+        
+    except subprocess.TimeoutExpired:
+        print("❌ Installation timed out")
+        return False
+    except Exception as e:
+        print(f"❌ Installation error: {e}")
+        return False
+
+# Main setup logic
+print("=" * 60)
+print("🚀 Spotection Setup")
+print("=" * 60)
+
+# Check if in virtual environment
+if not is_venv():
+    print("\n⚠️  Not running in a virtual environment!")
+    
+    # Check for existing venv
+    venv_name, venv_python = find_existing_venv()
+    
+    if venv_name:
+        print(f"✅ Found existing virtual environment: {venv_name}")
+        activate_and_rerun(venv_python)
+    else:
+        print("No virtual environment found.")
+        create_new = input("Create new virtual environment? (y/n): ").lower()
+        
+        if create_new == 'y':
+            venv_python = create_venv(".venv")
+            if venv_python:
+                activate_and_rerun(venv_python)
+            else:
+                print("\n❌ Setup cannot continue without a virtual environment")
+                sys.exit(1)
+        else:
+            print("\n❌ Setup requires a virtual environment to avoid conflicts")
+            print("Please create and activate a virtual environment:")
+            print("  python -m venv .venv")
+            if platform.system() == "Windows":
+                print("  .venv\\Scripts\\activate")
+            else:
+                print("  source .venv/bin/activate")
+            print("Then run setup.py again")
+            sys.exit(1)
+else:
+    print("\n✅ Running in virtual environment")
+
+# Always install/upgrade dependencies in venv
+if not install_dependencies(show_progress=True):
+    print("\n❌ Failed to install dependencies. Please run manually:")
+    print(f"   {sys.executable} -m pip install -r requirements.txt")
+    sys.exit(1)
+
+# Now import setup modules
+from setup import ConfigManager, DatabaseManager, EnvironmentManager, apply_migrations
+
+class Colors:
+    """ANSI color codes for terminal output"""
+    HEADER = '\033[95m'
+    OKBLUE = '\033[94m'
+    OKCYAN = '\033[96m'
+    OKGREEN = '\033[92m'
+    WARNING = '\033[93m'
+    FAIL = '\033[91m'
+    ENDC = '\033[0m'
+    BOLD = '\033[1m'
+
+def print_header(message):
+    """Print a styled header message"""
+    print(f"\n{Colors.HEADER}{Colors.BOLD}{'='*60}{Colors.ENDC}")
+    print(f"{Colors.HEADER}{Colors.BOLD}{message}{Colors.ENDC}")
+    print(f"{Colors.HEADER}{Colors.BOLD}{'='*60}{Colors.ENDC}\n")
+
+def print_success(message):
+    """Print a success message"""
+    print(f"{Colors.OKGREEN}✅ {message}{Colors.ENDC}")
+
+def print_error(message):
+    """Print an error message"""
+    print(f"{Colors.FAIL}❌ {message}{Colors.ENDC}")
+
+def print_warning(message):
+    """Print a warning message"""
+    print(f"{Colors.WARNING}⚠️  {message}{Colors.ENDC}")
+
+def print_info(message):
+    """Print an info message"""
+    print(f"{Colors.OKCYAN}ℹ️  {message}{Colors.ENDC}")
+
+
+def setup_environment():
+    """Set up Python environment"""
+    print_header("Step 1: Environment Setup")
+    
+    env_manager = EnvironmentManager()
+    
+    # Check Python version
+    print_info("Checking Python version...")
+    is_compatible, version = env_manager.check_python_version()
+    if not is_compatible:
+        print_error(f"Python 3.8+ required. Found: {version}")
+        return None
+    print_success(f"Python {version} detected")
+    
+    # Create virtual environment
+    if env_manager.venv_exists():
+        print_warning("Virtual environment already exists")
+        recreate = input(f"{Colors.OKCYAN}Recreate? (y/n): {Colors.ENDC}").lower() == 'y'
+        success, msg = env_manager.create_venv(recreate=recreate)
+    else:
+        print_info("Creating virtual environment...")
+        success, msg = env_manager.create_venv()
+    
+    if not success:
+        print_error(msg)
+        return None
+    print_success(msg)
+    
+    # Upgrade pip
+    print_info("Upgrading pip...")
+    success, msg = env_manager.upgrade_pip()
+    if not success:
+        print_warning(f"Pip upgrade failed: {msg}")
+    else:
+        print_success(msg)
+    
+    # Install dependencies
+    print_info("Installing dependencies (this may take a few minutes)...")
+    success, msg = env_manager.install_requirements()
+    if not success:
+        print_error(msg)
+        cont = input(f"{Colors.WARNING}Continue anyway? (y/n): {Colors.ENDC}").lower()
+        if cont != 'y':
+            return None
+    else:
+        print_success(msg)
+    
+    # Create directories
+    directories = [
+        'uploads', 
+        'screenshots', 
+        'camera_feeds', 
+        'logs', 
+        'output', 
+        'data/layouts',
+        'media_archive',
+        'media_archive/images',
+        'media_archive/videos',
+        'media_archive/thumbnails'
+    ]
+    success, msg = env_manager.create_directories(directories)
+    if success:
+        print_success(msg)
+    
+    return env_manager
+
+
+def setup_configuration():
+    """Set up application configuration"""
+    print_header("Step 2: Configuration Setup")
+    
+    config_manager = ConfigManager()
+    
+    # Load or create config
+    print_info("Loading configuration...")
+    config = config_manager.load()
+    
+    # If config doesn't exist, create from template
+    if not config or not config_manager.get('secret_key'):
+        print_info("Creating new configuration from template...")
+        config = config_manager.create_from_template()
+        print_success("Configuration created")
+    else:
+        print_success("Configuration loaded")
+        
+        # Update missing keys
+        if config_manager.update_missing_keys():
+            print_info("Added missing configuration keys")
+    
+    # Admin credentials setup
+    print("\n" + Colors.HEADER + "Admin Account" + Colors.ENDC)
+    current_user = config_manager.get('admin_username', 'admin')
+    current_pass = config_manager.get('admin_password', 'admin123')
+    
+    print_warning(f"Current username: {current_user}")
+    
+    if current_pass == 'CHANGE_THIS_PASSWORD' or current_pass == 'admin123':
+        print_warning("Using default password - must be changed!")
+        change = 'y'
+    else:
+        change = input(f"{Colors.OKCYAN}Change admin credentials? (y/n): {Colors.ENDC}").lower()
+    
+    if change == 'y':
+        username = input(f"{Colors.OKCYAN}Admin username [{current_user}]: {Colors.ENDC}") or current_user
+        password = input(f"{Colors.OKCYAN}Admin password: {Colors.ENDC}")
+        
+        if password:
+            config_manager.update_admin_credentials(username, password)
+            print_success("Admin credentials updated")
+    
+    # Validate configuration
+    is_valid, errors = config_manager.validate()
+    if not is_valid:
+        print_warning("Configuration validation warnings:")
+        for error in errors:
+            print(f"  - {error}")
+    
+    # Ensure media storage is configured
+    if not config_manager.get('media_storage'):
+        print_info("Setting up media storage configuration...")
+        config_manager.set('media_storage', {
+            'enabled': True,
+            'base_path': 'media_archive',
+            'max_size_gb': 20.0,
+            'capture_interval': 300,
+            'capture_on_change': True,
+            'video_recording': False,
+            'video_segment_duration': 300,
+            'cleanup_enabled': True,
+            'keep_thumbnails': True
+        })
+        config_manager.save()
+        print_success("Media storage configured")
+    else:
+        # Show current media storage settings
+        ms_config = config_manager.get('media_storage')
+        print_info(f"Media Storage: {'Enabled' if ms_config.get('enabled') else 'Disabled'}")
+        if ms_config.get('enabled'):
+            print_info(f"  - Max size: {ms_config.get('max_size_gb', 20)}GB")
+            print_info(f"  - Video recording: {'Yes' if ms_config.get('video_recording') else 'No'}")
+    
+    return config_manager
+
+
+def setup_database(config_manager):
+    """Set up database"""
+    print_header("Step 3: Database Setup")
+    
+    db_uri = config_manager.get('database_uri')
+    
+    # Prompt for database credentials if needed
+    if not db_uri or 'password123' in db_uri:
+        print_warning("Database credentials need configuration")
+        
+        db_user = input(f"{Colors.OKCYAN}Database user [spotection_client]: {Colors.ENDC}") or "spotection_client"
+        db_pass = input(f"{Colors.OKCYAN}Password: {Colors.ENDC}")
+        db_host = input(f"{Colors.OKCYAN}Host [localhost]: {Colors.ENDC}") or "localhost"
+        db_port = int(input(f"{Colors.OKCYAN}Port [5432]: {Colors.ENDC}") or "5432")
+        db_name = input(f"{Colors.OKCYAN}Database [parking_db]: {Colors.ENDC}") or "parking_db"
+        
+        db_uri = config_manager.update_database_uri(db_user, db_pass, db_host, db_port, db_name)
+        print_success("Database URI configured")
+    
+    # Test connection
+    db_manager = DatabaseManager(db_uri)
+    
+    max_retries = 3
+    for attempt in range(max_retries):
+        print_info(f"Testing database connection (attempt {attempt + 1}/{max_retries})...")
+        
+        success, error = db_manager.test_connection()
+        
+        if success:
+            print_success("Database connection successful")
+            break
+        else:
+            print_error(f"Connection failed: {error}")
+            
+            if attempt < max_retries - 1:
+                retry = input(f"{Colors.WARNING}Try different credentials? (y/n): {Colors.ENDC}").lower()
+                if retry == 'y':
+                    db_user = input(f"{Colors.OKCYAN}Database user: {Colors.ENDC}")
+                    db_pass = input(f"{Colors.OKCYAN}Password: {Colors.ENDC}")
+                    db_host = input(f"{Colors.OKCYAN}Host [localhost]: {Colors.ENDC}") or "localhost"
+                    db_port = int(input(f"{Colors.OKCYAN}Port [5432]: {Colors.ENDC}") or "5432")
+                    db_name = input(f"{Colors.OKCYAN}Database [parking_db]: {Colors.ENDC}") or "parking_db"
+                    
+                    db_uri = config_manager.update_database_uri(db_user, db_pass, db_host, db_port, db_name)
+                    db_manager = DatabaseManager(db_uri)
+                else:
+                    print_error("Database setup failed")
+                    return None
+            else:
+                print_error("Maximum connection attempts reached")
+                return None
+    
+    # Apply migrations
+    print_info("Applying database migrations...")
+    success, messages = apply_migrations(db_manager)
+    
+    for msg in messages:
+        if '✓' in msg:
+            print_success(msg)
+        elif '✗' in msg:
+            print_error(msg)
+        else:
+            print_info(msg)
+    
+    if not success:
+        print_error("Migration failed")
+        return None
+    
+    # Create default lot
+    print_info("Creating default parking lot...")
+    default_lot_id = config_manager.get('default_lot_id', 'LOT-001')
+    success, msg = db_manager.create_default_lot(default_lot_id)
+    
+    if success:
+        print_success(msg)
+    else:
+        print_error(msg)
+    
+    return db_manager
+
+
+def start_application(env_manager):
+    """Start the application"""
+    print_header("Starting Spotection")
+    
+    print_info("Starting web server...")
+    print_info("Press Ctrl+C to stop")
+    print_info("Access at: http://localhost:5000")
+    print(f"\n{Colors.OKGREEN}{'='*60}{Colors.ENDC}\n")
+    
+    import subprocess
+    
+    try:
+        python_exe = env_manager.get_venv_python()
+        subprocess.run([python_exe, "flaskweb/app.py"])
+    except KeyboardInterrupt:
+        print(f"\n\n{Colors.OKGREEN}👋 Server stopped{Colors.ENDC}")
+    except Exception as e:
+        print_error(f"Error starting server: {e}")
+        print_info(f"\nManually start with: {env_manager.get_activation_command()}")
+        print_info(f"Then: python flaskweb/app.py")
+
 
 def main():
-    """Main setup function."""
-    print("="*50)
-    print("🚀 Starting Spotection System Setup")
-    print("="*50)
-
-    # 1. Create/update config file
-    config = create_default_config()
-    if not config:
-        print("❌ Setup failed: Could not load configuration.")
-        return
-
-    # 2. Check for database URI and prompt if not set
-    if not config.get('database_uri'):
-        config = prompt_for_db_config(config)
-
-    # 3. Database initialization loop with retry
-    while True:
-        # Set up Flask app for database context
-        app = Flask(__name__)
-        app.config['SQLALCHEMY_DATABASE_URI'] = config.get('database_uri')
-        app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-        app.config['MAIN_CONFIG'] = config # Make config accessible
-        db.init_app(app)
-
-        # Try to initialize database
-        try:
-            initialize_database(app)
-            print("\n✅ Database connection successful and initialized.")
-            break  # Exit the loop on success
-        except OperationalError as e:
-            print("\n" + "="*50)
-            print("❌ Database Connection Failed.")
-            print(f"   Error: {str(e.orig) if hasattr(e, 'orig') else str(e)}")
-            print("   Most likely causes:")
-            print("   - Incorrect username or password")
-            print("   - Database server is not running")
-            print("   - Database does not exist")
-            print("   - Host or port is incorrect")
-            print("="*50 + "\n")
-            
-            if input("Would you like to re-enter database credentials? (y/n): ").lower() == 'y':
-                config = prompt_for_db_config(config)
-            else:
-                print("\n❌ Setup aborted. Please fix the database configuration and try again.")
-                return
-
-    print("\n🎉 Setup complete!")
-    print("="*50)
+    """Main setup function"""
+    print_header("🚀 Spotection Automated Setup")
     
-    # Prompt to start the system
-    print("\nWould you like to start the Spotection web application now?")
-    start_choice = input("Start system? (y/n): ").lower()
-    
-    if start_choice == 'y':
-        print("\n🚀 Starting Spotection web application...")
-        print("Press Ctrl+C to stop the server\n")
-        print("="*50)
+    try:
+        # Step 1: Environment
+        env_manager = setup_environment()
+        if not env_manager:
+            return
         
-        # Import and run Flask app
-        try:
-            import subprocess
-            import sys
-            
-            # Detect if we're in a virtual environment
-            venv_python = None
-            if hasattr(sys, 'real_prefix') or (hasattr(sys, 'base_prefix') and sys.base_prefix != sys.prefix):
-                # We're in a venv
-                venv_python = sys.executable
-            
-            # Run Flask app
-            if venv_python:
-                subprocess.run([venv_python, "-m", "flask", "--app", "flaskweb.app", "run", "--debug"])
-            else:
-                subprocess.run([sys.executable, "-m", "flask", "--app", "flaskweb.app", "run", "--debug"])
-                
-        except KeyboardInterrupt:
-            print("\n\n👋 Server stopped by user.")
-        except Exception as e:
-            print(f"\n❌ Error starting server: {e}")
-            print("You can manually start it with: python -m flask --app flaskweb.app run --debug")
-    else:
-        print("\nYou can start the system later with:")
-        print("  python -m flask --app flaskweb.app run --debug")
-        print("\nOr run the setup again: python setup.py")
+        # Step 2: Configuration
+        config_manager = setup_configuration()
+        if not config_manager:
+            return
+        
+        # Step 3: Database
+        db_manager = setup_database(config_manager)
+        if not db_manager:
+            print_warning("Database setup incomplete")
+            print_info("You can configure it later and run: python setup.py")
+        
+        # Complete
+        print_header("🎉 Setup Complete!")
+        
+        print(f"\n{Colors.OKGREEN}Next steps:{Colors.ENDC}")
+        print("  1. Review config.json")
+        print("  2. Start the application")
+        print("  3. Visit http://localhost:5000")
+        print("  4. Log in with admin credentials")
+        print("  5. Calibrate parking spaces\n")
+        
+        # Start application
+        start = input(f"{Colors.OKCYAN}Start application now? (y/n): {Colors.ENDC}").lower()
+        
+        if start == 'y':
+            start_application(env_manager)
+        else:
+            print(f"\n{Colors.OKGREEN}Start later with:{Colors.ENDC}")
+            print(f"  {env_manager.get_activation_command()}")
+            print(f"  python flaskweb/app.py")
+    
+    except KeyboardInterrupt:
+        print(f"\n\n{Colors.WARNING}Setup interrupted{Colors.ENDC}")
+        sys.exit(1)
+    except Exception as e:
+        print_error(f"Unexpected error: {e}")
+        import traceback
+        traceback.print_exc()
+        sys.exit(1)
+
 
 if __name__ == '__main__':
     main()

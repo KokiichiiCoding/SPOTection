@@ -13,9 +13,12 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 from flaskweb.models import db, ParkingLot, Spot, StatusUpdate
 import json
 from datetime import datetime, timezone
+from pathlib import Path
 import threading
 import time
 import logging
+import random
+import traceback
 import numpy as np
 from shapely.geometry import Polygon, box as shapely_box
 
@@ -25,6 +28,9 @@ logger = logging.getLogger(__name__)
 
 # Import camera manager
 from flaskweb.camera_manager import create_camera_feed
+
+# Import media storage manager
+from flaskweb.media_storage import MediaStorageManager
 
 # Import YOLO for detection
 try:
@@ -53,6 +59,9 @@ main_config = load_main_config()
 app = Flask(__name__)
 CORS(app)
 
+# Secret key for sessions (generate a random one if not in config)
+app.config['SECRET_KEY'] = main_config.get('secret_key', secrets.token_hex(32))
+
 # Initialize rate limiter
 limiter = Limiter(
     app=app,
@@ -63,25 +72,13 @@ limiter = Limiter(
     strategy="fixed-window"
 )
 
-# Secret key for sessions (generate a random one if not in config)
-app.config['SECRET_KEY'] = main_config.get('secret_key', secrets.token_hex(32))
-
-# Initialize rate limiter
-limiter = Limiter(
-    app=app,
-    key_func=get_remote_address,
-    default_limits=["200 per day", "50 per hour"],
-    storage_uri="memory://",
-    strategy="fixed-window"
-)
-
 # Admin credentials (load from config or use defaults - should be changed in production!)
 ADMIN_USERNAME = main_config.get('admin_username', 'admin')
 ADMIN_PASSWORD = main_config.get('admin_password', 'admin123')  # Change this!
 
 # Format: postgresql://USER:PASSWORD@HOST:PORT/DATABASE_NAME
 app.config['SQLALCHEMY_DATABASE_URI'] = main_config.get('database_uri', 'postgresql://spotection_client:password123@localhost:5432/parking_db')
-app.config['SQLALCHEMY_TRACK_MODIFICATION'] = False
+app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 
 db.init_app(app)
 # Note: Tables need to be created first via db.create_all() but only once, will put in setup.py
@@ -130,7 +127,6 @@ def load_camera_config():
                 camera_source = default_lot.camera_type or 'auto'
                 extraction_pattern_type = default_lot.extraction_pattern_type or 'auto'
                 extraction_pattern_value = default_lot.extraction_pattern_value
-                logger.info(f"Loaded camera from LOT-001: {camera_source}")
     except Exception as e:
         logger.debug(f"Could not load camera from database: {e}")
 
@@ -144,23 +140,45 @@ def load_camera_config():
                     camera_url = config.get('camera_url')
                     extraction_pattern_type = config.get('extraction_pattern_type', 'auto')
                     extraction_pattern_value = config.get('extraction_pattern_value')
-                    logger.info(f"Loaded camera config from file: {camera_source}")
             except Exception as e:
                 logger.debug(f"Error loading camera config: {e}")
 
     # Stop old camera
     if camera:
-        logger.info("Stopping old camera before reload")
         camera.stop()
         time.sleep(0.5)
 
     # Create new camera
     camera = create_camera_feed(camera_source, camera_url, extraction_pattern_type, extraction_pattern_value)
-    logger.info(f"Camera initialized: {camera.get_info()}")
 
 # Load initial camera config (skip during testing)
 if not os.environ.get('TESTING'):
     load_camera_config()
+# ============================================
+
+# ============================================
+# MEDIA STORAGE SYSTEM
+# ============================================
+media_storage = None
+last_media_capture = {}  # Track last capture time per lot
+
+def load_media_storage():
+    """Initialize media storage manager"""
+    global media_storage
+    try:
+        storage_config = main_config.get('media_storage', {})
+        if storage_config.get('enabled', True):
+            base_path = storage_config.get('base_path', 'media_archive')
+            max_size_gb = storage_config.get('max_size_gb', 20.0)
+            media_storage = MediaStorageManager(base_path, max_size_gb)
+        else:
+            logger.info("Media storage disabled in config")
+    except Exception as e:
+        logger.error(f"Failed to initialize media storage: {e}")
+
+# Initialize media storage (skip during testing)
+if not os.environ.get('TESTING'):
+    load_media_storage()
 # ============================================
 
 # ============================================
@@ -184,9 +202,7 @@ def load_detection_model():
         # Set model to evaluation mode for consistency
         detection_model.model.eval()
         
-        logger.info(f"✓ Detection model loaded: {model_path}")
-        logger.info(f"  Available classes: {len(detection_model.names)} (including: car, truck, bus, motorcycle)")
-        logger.info(f"  Configuration: conf={main_config.get('confidence_threshold', 0.2)}, iou={main_config.get('iou_threshold', 0.45)}")
+        logger.info(f"Detection model loaded: {model_path}")
         return True
     except Exception as e:
         logger.error(f"Failed to load detection model: {e}")
@@ -198,25 +214,37 @@ def detect_vehicles_in_frame(frame):
         return []
     
     try:
-        # Apply CLAHE enhancement if configured
+        # Apply advanced image enhancement if configured
         detection_frame = frame
         if main_config.get("image_enhancement", True):
-            lab = cv2.cvtColor(frame, cv2.COLOR_BGR2LAB)
+            # Step 1: Bilateral filter to reduce noise while preserving edges (helps with blur)
+            denoised = cv2.bilateralFilter(frame, 9, 75, 75)
+            
+            # Step 2: CLAHE enhancement for better contrast
+            lab = cv2.cvtColor(denoised, cv2.COLOR_BGR2LAB)
             l, a, b = cv2.split(lab)
-            clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+            
+            # Use stronger CLAHE for distant/blurry vehicles
+            clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
             l_enhanced = clahe.apply(l)
             lab_enhanced = cv2.merge([l_enhanced, a, b])
             detection_frame = cv2.cvtColor(lab_enhanced, cv2.COLOR_LAB2BGR)
+            
+            # Step 3: Sharpen the image to counteract blur
+            kernel = np.array([[-1,-1,-1],
+                              [-1, 9,-1],
+                              [-1,-1,-1]])
+            detection_frame = cv2.filter2D(detection_frame, -1, kernel)
         
         # Run detection with optimized parameters
         # Use a lower base confidence threshold to ensure we catch vehicles in small/distant spots
         # We'll filter by higher confidence during spot analysis for normal-sized spots
         conf_threshold = main_config.get('confidence_threshold', 0.2)
-        small_spot_conf_threshold = conf_threshold * 0.7  # 70% of normal threshold for small spots
+        small_spot_conf_threshold = conf_threshold * 0.65  # 65% of normal threshold for small spots
         
         # Use the lower threshold globally to catch all potential vehicles
         iou_threshold = main_config.get('iou_threshold', 0.45)  # NMS threshold
-        img_size = main_config.get('detection_image_size', 640)  # Standard YOLO size
+        img_size = main_config.get('detection_image_size', 1280)  # Larger size for better distant detection
         
         results = detection_model(
             detection_frame,
@@ -225,7 +253,8 @@ def detect_vehicles_in_frame(frame):
             imgsz=img_size,
             verbose=False,
             device='cpu',  # Explicitly use CPU for consistency
-            half=False     # Disable half-precision for accuracy
+            half=False,    # Disable half-precision for accuracy
+            augment=True   # Enable test-time augmentation for better detection
         )[0]
         
         detections = []
@@ -245,7 +274,6 @@ def detect_vehicles_in_frame(frame):
                     "box": shapely_box(x1, y1, x2, y2)
                 })
         
-        logger.debug(f"Detected {len(detections)} vehicles")
         return detections
     except Exception as e:
         logger.error(f"Detection error: {e}")
@@ -259,9 +287,6 @@ def analyze_spots_with_detections(detections, calibration_data, frame_shape, lot
     results = {}
     overlap_threshold = main_config.get('overlap_threshold', 0.25)
     
-    logger.debug(f"Analyzing {len(calibration_data)} spots with {len(detections)} detections")
-    logger.debug(f"Frame shape: {frame_shape}, Overlap threshold: {overlap_threshold}")
-    
     # Get current spot statuses for hysteresis - use memory tracking, not database
     # Database may have been updated too recently
     current_statuses = {}
@@ -272,7 +297,6 @@ def analyze_spots_with_detections(detections, calibration_data, frame_shape, lot
                 current_statuses[spot_id] = 'occupied'
             else:
                 current_statuses[spot_id] = 'free'
-        logger.info(f"📊 Memory statuses for {lot_id}: {current_statuses}")
     
     for spot_data in calibration_data:
         spot_id = spot_data['id']
@@ -293,22 +317,19 @@ def analyze_spots_with_detections(detections, calibration_data, frame_shape, lot
             # Adjust thresholds for small spots
             if is_small_spot:
                 # Use intersection/spot_area ratio instead of IoU for small spots
-                # Lower threshold significantly for small/distant spots (40% of normal)
-                effective_threshold = overlap_threshold * 0.6
-                # Also lower confidence threshold for small spots (70% of normal)
-                min_confidence = main_config.get('confidence_threshold', 0.2) * 0.7
-                logger.debug(f"Spot {spot_id}: SMALL spot (area={spot_area:.2f} pixels²), using adjusted threshold={effective_threshold:.3f} (was {overlap_threshold:.3f}), min_conf={min_confidence:.2f}")
+                # Lower threshold significantly for small/distant spots (50% of normal)
+                effective_threshold = overlap_threshold * 0.5
+                # Also lower confidence threshold for small spots (65% of normal)
+                min_confidence = main_config.get('confidence_threshold', 0.2) * 0.65
             else:
                 effective_threshold = overlap_threshold
                 # Use normal confidence threshold for regular spots
                 min_confidence = main_config.get('confidence_threshold', 0.2)
-                logger.debug(f"Spot {spot_id}: polygon area = {spot_area:.2f} pixels², threshold={effective_threshold:.3f}, min_conf={min_confidence:.2f}")
             
             # Apply hysteresis: if currently occupied, use 80% of threshold to become free
             # This prevents flickering when vehicle slightly moves
             if currently_occupied:
                 free_threshold = effective_threshold * 0.8
-                logger.debug(f"Spot {spot_id}: Currently occupied, using lower free threshold={free_threshold:.3f} (80% of {effective_threshold:.3f})")
             else:
                 free_threshold = effective_threshold
             
@@ -325,12 +346,10 @@ def analyze_spots_with_detections(detections, calibration_data, frame_shape, lot
                     if is_small_spot:
                         # For small spots, use intersection/spot ratio (more sensitive)
                         overlap_ratio = intersection.area / spot_area
-                        logger.debug(f"  {spot_id} ↔ {detection['class']}: overlap={overlap_ratio:.3f} (intersection/spot method for small spot), conf={detection['confidence']:.2f}")
                     else:
                         # For normal spots, use IoU
                         union_area = spot_polygon.area + detection["box"].area - intersection.area
                         overlap_ratio = intersection.area / union_area if union_area > 0 else 0
-                        logger.debug(f"  {spot_id} ↔ {detection['class']}: overlap={overlap_ratio:.3f} (IoU method), conf={detection['confidence']:.2f}")
                     
                     if overlap_ratio > max_overlap:
                         max_overlap = overlap_ratio
@@ -350,7 +369,6 @@ def analyze_spots_with_detections(detections, calibration_data, frame_shape, lot
                 if lot_id and lot_id in spot_status_history:
                     if spot_id in spot_status_history[lot_id]:
                         spot_status_history[lot_id][spot_id]['empty_count'] = 0
-                logger.info(f"✓ {spot_id}: OCCUPIED - {best_match['class']} (overlap={max_overlap:.3f}, conf={best_match['confidence']:.2%})")
             elif max_overlap > 0.15 and best_match and best_match['confidence'] < 0.6:
                 # Low confidence detection - mark as occupied to be safe
                 # Require minimum 15% overlap to avoid shadows
@@ -368,7 +386,6 @@ def analyze_spots_with_detections(detections, calibration_data, frame_shape, lot
                 if lot_id and lot_id in spot_status_history:
                     if spot_id in spot_status_history[lot_id]:
                         spot_status_history[lot_id][spot_id]['empty_count'] = 0
-                logger.info(f"⚠️ {spot_id}: OCCUPIED (uncertain) - {best_match['class']} (IoU={max_overlap:.3f}, conf={best_match['confidence']:.2%})")
             elif currently_occupied and max_overlap > free_threshold and best_match:
                 # Hysteresis: keep as occupied if still above lower threshold
                 results[spot_id] = {
@@ -384,12 +401,9 @@ def analyze_spots_with_detections(detections, calibration_data, frame_shape, lot
                 if lot_id and lot_id in spot_status_history:
                     if spot_id in spot_status_history[lot_id]:
                         spot_status_history[lot_id][spot_id]['empty_count'] = 0
-                logger.info(f"✓ {spot_id}: OCCUPIED (hysteresis) - {best_match['class']} (overlap={max_overlap:.3f}, conf={best_match['confidence']:.2%})")
             else:
                 # Spot appears empty - check if we should mark it free
                 should_mark_free = True
-                
-                logger.info(f"🔍 {spot_id}: No detection, currently_occupied={currently_occupied}, lot_id={lot_id}")
                 
                 if currently_occupied and lot_id:
                     # Initialize tracking for this lot if needed
@@ -418,15 +432,12 @@ def analyze_spots_with_detections(detections, calibration_data, frame_shape, lot
                                             'confidence': latest.confidence,
                                             'vehicle_data': latest.vehicle_data
                                         }
-                                        logger.info(f"✓ {spot_id}: OCCUPIED (holding, empty frame {empty_count}/{EMPTY_FRAMES_REQUIRED})")
                                     else:
                                         # No previous vehicle data, mark as free
                                         should_mark_free = True
                         except Exception as e:
-                            logger.debug(f"Could not fetch last vehicle data: {e}")
+                            pass
                             should_mark_free = True
-                    else:
-                        logger.info(f"✓ {spot_id}: Marking FREE after {empty_count} consecutive empty frames")
                 
                 if should_mark_free:
                     results[spot_id] = {
@@ -437,16 +448,10 @@ def analyze_spots_with_detections(detections, calibration_data, frame_shape, lot
                     # Reset counter when marked free
                     if lot_id and lot_id in spot_status_history and spot_id in spot_status_history[lot_id]:
                         spot_status_history[lot_id][spot_id]['empty_count'] = 0
-                    
-                    if max_overlap > 0:
-                        logger.debug(f"  {spot_id}: FREE (max IoU={max_overlap:.3f} < threshold {free_threshold if currently_occupied else effective_threshold})")
-                    else:
-                        logger.debug(f"  {spot_id}: FREE (no vehicles detected)")
         except Exception as e:
             logger.error(f"Error analyzing spot {spot_id}: {e}", exc_info=True)
             continue
     
-    logger.info(f"Analysis complete: {sum(1 for r in results.values() if r['status'] == 'occupied')} occupied, {sum(1 for r in results.values() if r['status'] == 'free')} free")
     return results
 
 def update_database_with_detections(spot_results, lot_id):
@@ -478,12 +483,8 @@ def update_database_with_detections(spot_results, lot_id):
                     )
                     db.session.add(new_status)
                     updated_count += 1
-                    logger.info(f"✓ Updated {spot_id}: {result['status']} (conf={result['confidence']:.2f}, vehicle={result['vehicle_data']})")
-                else:
-                    logger.debug(f"No change for {spot_id}: still {result['status']}")
             
             db.session.commit()
-            logger.info(f"Database commit: {updated_count} spots updated")
     except Exception as e:
         logger.error(f"Database update error: {e}", exc_info=True)
         db.session.rollback()
@@ -491,11 +492,10 @@ def update_database_with_detections(spot_results, lot_id):
 def detection_loop():
     """Background detection loop"""
     global detection_running
-    logger.info("🔍 Detection loop started")
     
     # Use update_interval from config (configurable in admin panel)
     interval = main_config.get('update_interval', 5)  # Default to 5 seconds
-    logger.info(f"Detection interval set to {interval} seconds")
+    logger.info(f"Detection loop started (interval: {interval}s)")
     
     while detection_running:
         try:
@@ -514,15 +514,11 @@ def detection_loop():
                         if lot_id == main_config.get('default_lot_id', 'LOT-001'):
                             calibration_data = main_config.get('calibration_data', [])
                         if not calibration_data:
-                            logger.debug(f"Skipping {lot_id} - no calibration data")
                             continue
                     
                     # Check if this lot has a camera configured
                     if not lot.camera_url:
-                        logger.debug(f"Skipping {lot_id} - no camera configured")
                         continue
-                    
-                    logger.info(f"Processing detection for {lot_id}")
                     
                     # Create temporary camera for this lot
                     lot_camera = None
@@ -554,11 +550,8 @@ def detection_loop():
                             logger.warning(f"Failed to decode frame for {lot_id}")
                             continue
                         
-                        logger.debug(f"{lot_id}: Frame decoded: shape={frame.shape}")
-                        
                         # Detect vehicles
                         detections = detect_vehicles_in_frame(frame)
-                        logger.info(f"{lot_id}: Detected {len(detections)} vehicles")
                         
                         # Cache detections for overlay display
                         global latest_detections
@@ -566,12 +559,75 @@ def detection_loop():
                         
                         # Analyze spots
                         spot_results = analyze_spots_with_detections(detections, calibration_data, frame.shape, lot_id=lot_id)
-                        logger.info(f"{lot_id}: Analyzed {len(spot_results)} spots")
                         
                         # Update database
                         update_database_with_detections(spot_results, lot_id)
                         
-                        logger.info(f"✓ {lot_id}: Detection complete - {len(detections)} vehicles, {len(spot_results)} spots")
+                        # Save media to archive if enabled
+                        if media_storage:
+                            try:
+                                storage_config = main_config.get('media_storage', {})
+                                capture_interval = storage_config.get('capture_interval', 300)  # 5 minutes default
+                                capture_on_change = storage_config.get('capture_on_change', True)
+                                
+                                # Determine if we should capture
+                                should_capture = False
+                                now = time.time()
+                                
+                                # Check time-based capture
+                                last_capture_time = last_media_capture.get(lot_id, 0)
+                                if now - last_capture_time >= capture_interval:
+                                    should_capture = True
+                                
+                                # Check change-based capture
+                                if capture_on_change and not should_capture:
+                                    # Compare current occupancy with previous
+                                    occupied_spots = sum(1 for s in spot_results.values() if s.get('occupied'))
+                                    prev_occupied = last_media_capture.get(f"{lot_id}_occupied", occupied_spots)
+                                    
+                                    if occupied_spots != prev_occupied:
+                                        should_capture = True
+                                        last_media_capture[f"{lot_id}_occupied"] = occupied_spots
+                                
+                                if should_capture:
+                                    # Prepare metadata
+                                    occupied_count = sum(1 for s in spot_results.values() if s.get('occupied'))
+                                    metadata = {
+                                        'detections_count': occupied_count,  # Count vehicles in spots, not all detections
+                                        'occupied_spots': occupied_count,
+                                        'total_spots': len(spot_results),
+                                        'vehicle_types': {},
+                                        'capture_reason': 'interval' if now - last_capture_time >= capture_interval else 'change'
+                                    }
+                                    
+                                    # Count vehicle types from occupied spots only
+                                    for spot_data in spot_results.values():
+                                        if spot_data.get('occupied') and spot_data.get('vehicle_class'):
+                                            veh_class = spot_data.get('vehicle_class', 'unknown')
+                                            metadata['vehicle_types'][veh_class] = metadata['vehicle_types'].get(veh_class, 0) + 1
+                                    
+                                    # Save image with app context
+                                    with app.app_context():
+                                        success, result = media_storage.save_image(
+                                            db,
+                                            frame,
+                                            lot.id,
+                                            datetime.now(),
+                                            metadata
+                                        )
+                                        
+                                        if success:
+                                            last_media_capture[lot_id] = now
+                                        else:
+                                            logger.error(f"{lot_id}: Media save failed: {result}")
+                                
+                            except Exception as e:
+                                logger.error(f"{lot_id}: Media capture error: {e}", exc_info=True)
+                        
+                        # Print clean summary
+                        occupied = sum(1 for r in spot_results.values() if r['status'] == 'occupied')
+                        free = sum(1 for r in spot_results.values() if r['status'] == 'free')
+                        logger.info(f"[{lot_id}] 🚗 {len(detections)} vehicles | 🅿️ {occupied}/{len(spot_results)} occupied | ✓ Detection complete")
                         
                     finally:
                         # Clean up lot camera
@@ -585,7 +641,7 @@ def detection_loop():
         interval = main_config.get('update_interval', 5)
         time.sleep(interval)
     
-    logger.info("🛑 Detection loop stopped")
+    logger.info("Detection loop stopped")
 
 def start_detection():
     """Start background detection"""
@@ -604,7 +660,6 @@ def start_detection():
     detection_running = True
     detection_thread = threading.Thread(target=detection_loop, daemon=True)
     detection_thread.start()
-    logger.info("✓ Background detection started")
     return True
 
 def stop_detection():
@@ -613,7 +668,6 @@ def stop_detection():
     detection_running = False
     if detection_thread:
         detection_thread.join(timeout=2)
-    logger.info("Detection stopped")
 
 # Auto-start detection when module loads (skip during testing)
 # Only run in the main worker process, not the reloader parent process
@@ -622,14 +676,10 @@ if DETECTION_AVAILABLE and not os.environ.get('TESTING'):
     if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
         # Load model first
         if load_detection_model():
-            logger.info("✓ Detection model loaded at startup")
             # Start detection automatically
-            if start_detection():
-                logger.info("🔍 Background detection auto-started at module load")
+            start_detection()
         else:
             logger.warning("Detection model not loaded at startup - use /api/detection/load_model")
-    else:
-        logger.info("⏸️ Skipping auto-start in reloader parent process")
 
 # ============================================
 
@@ -676,22 +726,8 @@ if not os.environ.get('TESTING'):
 else:
     calibration_data = []
 
-# Background thread to simulate real-time updates
-def update_parking_data():
-    """Simulate periodic updates from ML model"""
-    while True:
-        time.sleep(5)  # Update every 5 seconds
-        # TODO: Replace with actual ML model detection
-        import random
-        available = random.randint(15, 35)
-        parking_data['available_spaces'] = available
-        parking_data['occupied_spaces'] = 50 - available
-        parking_data['last_updated'] = datetime.now().isoformat()
-
-# Start background thread (skip during testing)
-if not os.environ.get('TESTING'):
-    update_thread = threading.Thread(target=update_parking_data, daemon=True)
-    update_thread.start()
+# Note: Real-time updates are now handled by the detection_loop() function
+# The obsolete update_parking_data() background thread has been removed
 
 # ============================================
 # AUTHENTICATION
@@ -740,6 +776,11 @@ def live():
     """Redirect to main dashboard"""
     return redirect(url_for('index'))
 
+@app.route('/media-archive')
+def media_archive():
+    """Media archive viewer"""
+    return render_template('media_archive.html')
+
 @app.route('/analytics')
 def analytics():
     """Redirect to main dashboard"""
@@ -750,6 +791,79 @@ def analytics():
 def admin():
     """Admin panel - UC-002: Calibrate, UC-005: Configure"""
     return render_template('admin.html')
+
+@app.route('/api/system/settings', methods=['GET', 'POST'])
+@login_required
+@limiter.limit("30 per minute")
+def system_settings():
+    """Get or update system settings"""
+    if request.method == 'GET':
+        # Return current configuration (excluding sensitive data)
+        safe_config = {
+            'detection': {
+                'confidence_threshold': main_config.get('confidence_threshold', 0.25),
+                'overlap_threshold': main_config.get('overlap_threshold', 0.3),
+                'iou_threshold': main_config.get('iou_threshold', 0.45),
+                'detection_image_size': main_config.get('detection_image_size', 640),
+                'image_enhancement': main_config.get('image_enhancement', True),
+                'vehicle_classes': main_config.get('vehicle_classes', [])
+            },
+            'camera': {
+                'camera_source': main_config.get('camera_source', 'placeholder'),
+                'camera_url': main_config.get('camera_url'),
+                'update_interval': main_config.get('update_interval', 5)
+            },
+            'media_storage': main_config.get('media_storage', {}),
+            'system': {
+                'screenshot_interval': main_config.get('screenshot_interval', 120),
+                'save_raw_screenshots': main_config.get('save_raw_screenshots', True),
+                'log_dir': main_config.get('log_dir', 'logs/'),
+                'output_dir': main_config.get('output_dir', 'output/')
+            }
+        }
+        return jsonify(safe_config)
+    
+    elif request.method == 'POST':
+        try:
+            data = request.json
+            if not data:
+                return jsonify({'success': False, 'error': 'No data provided'}), 400
+            
+            # Update configuration sections
+            if 'detection' in data:
+                for key, value in data['detection'].items():
+                    main_config[key] = value
+            
+            if 'camera' in data:
+                for key, value in data['camera'].items():
+                    main_config[key] = value
+            
+            if 'media_storage' in data:
+                main_config['media_storage'] = {**main_config.get('media_storage', {}), **data['media_storage']}
+                
+                # Reinitialize media storage if settings changed
+                global media_storage
+                if media_storage and main_config['media_storage'].get('enabled', True):
+                    from flaskweb.media_storage import MediaStorageManager
+                    media_storage = MediaStorageManager(
+                        base_path=main_config['media_storage'].get('base_path', 'media_archive'),
+                        max_size_gb=main_config['media_storage'].get('max_size_gb', 20.0)
+                    )
+            
+            if 'system' in data:
+                for key, value in data['system'].items():
+                    main_config[key] = value
+            
+            # Save to config.json
+            with open('config.json', 'w') as f:
+                json.dump(main_config, f, indent=2)
+            
+            logger.info("System settings updated")
+            return jsonify({'success': True, 'message': 'Settings updated successfully'})
+        
+        except Exception as e:
+            logger.error(f"Error updating settings: {e}")
+            return jsonify({'success': False, 'error': str(e)}), 500
 
 @app.route('/test-multilot')
 def test_multilot():
@@ -1079,7 +1193,6 @@ def config():
             except Exception as e:
                 db.session.rollback()
                 logger.error(f"Error syncing calibration to database: {e}")
-                import traceback
                 logger.error(traceback.format_exc())
                 # Don't fail the entire save if DB sync fails
         
@@ -1089,7 +1202,8 @@ def config():
             with open(config_file, 'r') as f:
                 try:
                     existing_config = json.load(f)
-                except:
+                except json.JSONDecodeError as e:
+                    logger.warning(f"Failed to parse config.json: {e}")
                     pass
         
         # Merge with existing config
@@ -1276,7 +1390,8 @@ def get_lot_detection_overlay(lot_id):
                         spot_polygon = Polygon(pixel_coords)
                         spot_area = spot_polygon.area
                         is_small_spot = spot_area < 5000
-                    except:
+                    except Exception as e:
+                        logger.debug(f"Failed to calculate spot area: {e}")
                         pass
                 
                 spot_data = {
@@ -1364,7 +1479,6 @@ def analytics_summary():
     
     # Generate trend data (in production, pull from database)
     # For now, generate realistic-looking data based on current occupancy
-    import random
     base = occupied
     trends = []
     for i in range(7):
@@ -1551,7 +1665,8 @@ def get_all_lots():
     lots = ParkingLot.query.all()
     return jsonify({
         'lots': [{
-            'public_id': lot.public_id,  # Changed from 'id' to 'public_id'
+            'id': lot.id,  # Database ID for API calls
+            'public_id': lot.public_id,  # Public display ID
             'name': lot.name,
             'total_spots': lot.total_spots,
             'camera_url': lot.camera_url,
@@ -1775,37 +1890,6 @@ def get_spot_status_history(lot_id):
         logger.error(f"Error getting status history: {e}")
         return jsonify({'error': str(e)}), 500
 
-if __name__ == '__main__':
-    logger.info("Parking Detection System - Starting")
-    logger.info("Server starting on http://localhost:5000")
-    if camera:
-        logger.info(f"Camera Info: {camera.get_info()}")
-    
-    # Start detection if available
-    if DETECTION_AVAILABLE:
-        if start_detection():
-            logger.info("Background detection: ENABLED")
-        else:
-            logger.warning("Background detection: FAILED TO START")
-    else:
-        logger.warning("Background detection: DISABLED (install ultralytics and opencv-python)")
-    
-    logger.info("=" * 50)
-    
-    # Get host and port from config, with fallbacks
-    host = main_config.get('host', '0.0.0.0')
-    port = main_config.get('port', 5000)
-    debug = main_config.get('debug', False)
-    
-    try:
-        app.run(host=host, port=port, debug=debug, use_reloader=False)
-    finally:
-        # Cleanup
-        stop_detection()
-        if camera:
-            camera.stop()
-        logger.info("Server stopped. Cleanup complete.")
-
 # Database Routes
 @app.route('/api/lot/<string:lot_public_id>/status')
 @limiter.limit("60 per minute")  # Higher limit for live status updates
@@ -1875,3 +1959,323 @@ def get_lot_status(lot_public_id):
     logger.debug(f"Status query for {lot_public_id}: {free_spots} free, {occupied_spots} occupied out of {lot.total_spots} total")
 
     return jsonify(response)
+
+
+# ============================================
+# MEDIA STORAGE API ENDPOINTS
+# ============================================
+
+@app.route('/api/media/storage/stats', methods=['GET'])
+def get_media_storage_stats():
+    """Get media storage statistics"""
+    try:
+        if not media_storage:
+            return jsonify({"error": "Media storage not enabled"}), 503
+        
+        stats = media_storage.get_storage_stats(db)
+        return jsonify(stats)
+    except Exception as e:
+        logger.error(f"Error getting storage stats: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/media/<int:lot_id>/timeline', methods=['GET'])
+def get_media_timeline(lot_id):
+    """Get media timeline for a specific date"""
+    try:
+        if not media_storage:
+            return jsonify({"error": "Media storage not enabled"}), 503
+        
+        # Get date parameter (default to today)
+        date_str = request.args.get('date')
+        if date_str:
+            target_date = datetime.fromisoformat(date_str)
+        else:
+            target_date = datetime.now()
+        
+        timeline = media_storage.get_media_timeline(db, lot_id, target_date)
+        
+        return jsonify({
+            'lot_id': lot_id,
+            'date': target_date.date().isoformat(),
+            'timeline': timeline
+        })
+    except Exception as e:
+        logger.error(f"Error getting media timeline: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/media/<int:lot_id>/timerange', methods=['GET'])
+def get_media_by_timerange(lot_id):
+    """Get media files within a time range"""
+    try:
+        if not media_storage:
+            return jsonify({"error": "Media storage not enabled"}), 503
+        
+        # Get time range parameters
+        start_time_str = request.args.get('start_time')
+        end_time_str = request.args.get('end_time')
+        media_type = request.args.get('media_type')  # 'image', 'video', or None for all
+        limit = int(request.args.get('limit', 100))
+        
+        if not start_time_str or not end_time_str:
+            return jsonify({"error": "start_time and end_time required"}), 400
+        
+        start_time = datetime.fromisoformat(start_time_str)
+        end_time = datetime.fromisoformat(end_time_str)
+        
+        media_files = media_storage.get_media_by_timerange(
+            db, lot_id, start_time, end_time, media_type, limit
+        )
+        
+        return jsonify({
+            'lot_id': lot_id,
+            'start_time': start_time.isoformat(),
+            'end_time': end_time.isoformat(),
+            'media_type': media_type,
+            'count': len(media_files),
+            'media': media_files
+        })
+    except Exception as e:
+        logger.error(f"Error getting media by timerange: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/media/<int:media_id>/file', methods=['GET'])
+def serve_media_file(media_id):
+    """Serve a media file (image or video)"""
+    try:
+        if not media_storage:
+            logger.error("Media storage not enabled")
+            return jsonify({"error": "Media storage not enabled"}), 503
+        
+        # Get media record from database
+        result = db.session.execute(
+            db.text("SELECT file_path, media_type FROM media_storage WHERE id = :id"),
+            {'id': media_id}
+        ).fetchone()
+        
+        if not result:
+            logger.error(f"Media {media_id} not found in database")
+            return jsonify({"error": "Media not found"}), 404
+        
+        file_path = result.file_path
+        media_type = result.media_type
+        
+        logger.info(f"Attempting to serve media {media_id}: {file_path}")
+        
+        # Check if file exists
+        from pathlib import Path
+        import os
+        file_path_obj = Path(file_path)
+        
+        # Determine the correct path
+        if file_path_obj.is_absolute():
+            # Already absolute path
+            pass
+        elif str(file_path).startswith('media_archive'):
+            # Old format: full path from project root (e.g., media_archive\images\lot10_...)
+            file_path_obj = Path.cwd() / file_path
+        else:
+            # New format: relative to media_archive (e.g., images/2025-12-03/lot10_...)
+            if media_storage and hasattr(media_storage, 'base_path'):
+                file_path_obj = media_storage.base_path / file_path
+            else:
+                file_path_obj = Path.cwd() / 'media_archive' / file_path
+        
+        logger.info(f"Resolved path: {file_path_obj}, exists: {file_path_obj.exists()}")
+        
+        if not file_path_obj.exists():
+            logger.error(f"File not found on disk: {file_path_obj}")
+            return jsonify({"error": f"File not found on disk: {file_path_obj}"}), 404
+        
+        # Serve file using absolute path
+        mimetype = 'image/jpeg' if media_type == 'image' else 'video/mp4'
+        
+        logger.info(f"Serving file with mimetype {mimetype}")
+        
+        # Read and send file directly
+        with open(str(file_path_obj), 'rb') as f:
+            from flask import Response
+            return Response(f.read(), mimetype=mimetype)
+    except Exception as e:
+        logger.error(f"Error serving media file {media_id}: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/media/<int:media_id>/thumbnail', methods=['GET'])
+def serve_media_thumbnail(media_id):
+    """Serve a media thumbnail"""
+    try:
+        if not media_storage:
+            return jsonify({"error": "Media storage not enabled"}), 503
+        
+        # Get media record from database
+        result = db.session.execute(
+            db.text("SELECT thumbnail_path FROM media_storage WHERE id = :id"),
+            {'id': media_id}
+        ).fetchone()
+        
+        if not result or not result.thumbnail_path:
+            return jsonify({"error": "Thumbnail not found"}), 404
+        
+        thumb_path = result.thumbnail_path
+        
+        # Check if file exists
+        from pathlib import Path
+        thumb_path_obj = Path(thumb_path)
+        
+        # Determine the correct path (same logic as main file)
+        if thumb_path_obj.is_absolute():
+            # Already absolute path
+            pass
+        elif str(thumb_path).startswith('media_archive'):
+            # Old format: full path from project root
+            thumb_path_obj = Path.cwd() / thumb_path
+        else:
+            # New format: relative to media_archive
+            if media_storage and hasattr(media_storage, 'base_path'):
+                thumb_path_obj = media_storage.base_path / thumb_path
+            else:
+                thumb_path_obj = Path.cwd() / 'media_archive' / thumb_path
+        
+        if not thumb_path_obj.exists():
+            return jsonify({"error": "Thumbnail not found on disk"}), 404
+        
+        # Serve file directly
+        with open(str(thumb_path_obj), 'rb') as f:
+            from flask import Response
+            return Response(f.read(), mimetype='image/jpeg')
+    except Exception as e:
+        logger.error(f"Error serving thumbnail: {e}")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/media/<int:lot_id>/parking-state', methods=['GET'])
+def get_parking_state_at_time(lot_id):
+    """Get parking lot occupancy state at a specific time"""
+    try:
+        # Get timestamp
+        timestamp_str = request.args.get('timestamp')
+        if not timestamp_str:
+            return jsonify({"error": "timestamp parameter required"}), 400
+        
+        timestamp = datetime.fromisoformat(timestamp_str)
+        
+        # Get lot from database
+        lot = ParkingLot.query.get(lot_id)
+        if not lot:
+            return jsonify({"error": "Lot not found"}), 404
+        
+        # Get spots that existed at or before that time
+        # Include spots even if they don't have history yet (show as unknown)
+        spots_query = db.text("""
+            SELECT 
+                s.id, 
+                s.spot_id as spot_number, 
+                NULL as polygon, 
+                NULL as created_at,
+                (
+                    SELECT status 
+                    FROM status_update 
+                    WHERE spot_id = s.id AND timestamp <= :timestamp
+                    ORDER BY timestamp DESC 
+                    LIMIT 1
+                ) as status,
+                (
+                    SELECT confidence 
+                    FROM status_update 
+                    WHERE spot_id = s.id AND timestamp <= :timestamp
+                    ORDER BY timestamp DESC 
+                    LIMIT 1
+                ) as confidence,
+                NULL as vehicle_class
+            FROM spot s
+            WHERE s.lot_id = :lot_id
+            ORDER BY s.spot_id
+        """)
+        
+        results = db.session.execute(spots_query, {
+            'lot_id': lot_id,
+            'timestamp': timestamp
+        }).fetchall()
+        
+        # Get calibration data for polygons
+        lot = ParkingLot.query.get(lot_id)
+        if not lot:
+            return jsonify({"error": "Lot not found"}), 404
+        
+        # Load calibration from config
+        config_file = 'config.json'
+        calibration_polygons = {}
+        if os.path.exists(config_file):
+            with open(config_file, 'r') as f:
+                config = json.load(f)
+                lot_key = f'calibration_data_{lot.public_id}'
+                calibration_data = config.get(lot_key) or config.get('calibration_data', [])
+                
+                for cal_spot in calibration_data:
+                    calibration_polygons[cal_spot.get('spot_number') or cal_spot.get('id')] = cal_spot.get('polygon', [])
+        
+        spots_data = []
+        for r in results:
+            # Get polygon from calibration
+            polygon = calibration_polygons.get(r.spot_number, [])
+            
+            # Only include spot if it existed at this time
+            # If no history, mark as unknown (gray)
+            has_history = r.status is not None
+            
+            spots_data.append({
+                'spot_number': r.spot_number,
+                'polygon': polygon,
+                'occupied': r.status == 'occupied' if has_history else None,  # None = unknown/no data yet
+                'confidence': float(r.confidence) if r.confidence else 0,
+                'vehicle_class': None,
+                'has_history': has_history
+            })
+        
+        return jsonify({
+            'lot_id': lot_id,
+            'timestamp': timestamp.isoformat(),
+            'spots': spots_data
+        })
+    except Exception as e:
+        logger.error(f"Error getting parking state: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+
+# ============================================
+# MAIN
+# ============================================
+
+if __name__ == '__main__':
+    logger.info("=" * 60)
+    logger.info("SPOTection - Parking Detection System")
+    logger.info("Server: http://localhost:5000")
+    if camera:
+        logger.info(f"Camera: {camera.get_info()}")
+    
+    # Start detection if available
+    if DETECTION_AVAILABLE:
+        if start_detection():
+            logger.info("Detection: ENABLED")
+        else:
+            logger.warning("Detection: FAILED TO START")
+    else:
+        logger.warning("Detection: DISABLED (install ultralytics and opencv-python)")
+    
+    logger.info("=" * 60)
+    
+    # Get host and port from config, with fallbacks
+    host = main_config.get('host', '0.0.0.0')
+    port = main_config.get('port', 5000)
+    debug = main_config.get('debug', False)
+    
+    try:
+        app.run(host=host, port=port, debug=debug, use_reloader=False)
+    finally:
+        # Cleanup
+        stop_detection()
+        if camera:
+            camera.stop()
