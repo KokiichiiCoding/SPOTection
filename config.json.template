@@ -1,17 +1,45 @@
 {
     "model_path": "yolov8n.pt",
-    "confidence_threshold": 0.2,
+    "confidence_threshold": 0.25,
     "overlap_threshold": 0.3,
+    "iou_threshold": 0.45,
+    "detection_image_size": 640,
+    "detection_threshold": 0.25,
+    "image_enhancement": true,
+    "vehicle_classes": [
+        "car",
+        "truck",
+        "bus",
+        "motorcycle",
+        "bicycle"
+    ],
+    "update_interval": 5,
     "database_uri": "postgresql://spotection_client:password123@localhost:5432/parking_db",
     "default_lot_id": "LOT-001",
-    "output_dir": "output/",
-    "log_dir": "logs/",
     "camera_url": null,
     "camera_source": "placeholder",
+    "extraction_pattern_type": "auto",
+    "extraction_pattern_value": null,
+    "output_dir": "output/",
+    "log_dir": "logs/",
     "screenshot_interval": 120,
     "save_raw_screenshots": true,
     "admin_username": "admin",
-    "admin_password": "admin123",
-    "secret_key": "CHANGE_THIS_TO_A_RANDOM_STRING"
+    "admin_password": "CHANGE_THIS_PASSWORD",
+    "secret_key": "CHANGE_THIS_TO_A_RANDOM_STRING_USE_secrets.token_hex(32)",
+    "host": "0.0.0.0",
+    "port": 5000,
+    "debug": false,
+    "calibration_data": [],
+    "media_storage": {
+        "enabled": true,
+        "base_path": "media_archive",
+        "max_size_gb": 20.0,
+        "capture_interval": 300,
+        "capture_on_change": true,
+        "video_recording": false,
+        "video_segment_duration": 300,
+        "cleanup_enabled": true,
+        "keep_thumbnails": true
+    }
 }
-

@@ -40,20 +40,40 @@ temp/
 screenshots/
 uploads/
 camera_feeds/
+media_archive/
 
 # Database
 parking_db_test
+*.db
+*.sqlite
+*.sqlite3
 
-# Configuration
+# Configuration - CRITICAL: Never commit production configs!
 config.json
 config_*.json
 *_config.json
 test_config.json
+# Only the template should be committed
+!config.json.template
 
 # OS
 .DS_Store
 Thumbs.db
+*.lock
 
 # Temp files
 *.tmp
 *.temp
+
+# Model files (keep template model only)
+!yolov8n.pt
+
+# SSL/TLS certificates
+*.pem
+*.key
+*.crt
+*.cert
+
+# Logs
+*.log
+logs/

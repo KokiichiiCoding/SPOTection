@@ -1,0 +1,3 @@
+@echo off
+echo Starting SPOTection...
+.venv\Scripts\python.exe flaskweb\app.py

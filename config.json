@@ -1,9 +1,9 @@
 {
   "model_path": "yolov8n.pt",
-  "confidence_threshold": 0.25,
-  "overlap_threshold": 0.3,
-  "iou_threshold": 0.45,
-  "detection_image_size": 1024,
+  "confidence_threshold": 0.2,
+  "overlap_threshold": 0.25,
+  "iou_threshold": 0.4,
+  "detection_image_size": 1280,
   "image_enhancement": true,
   "vehicle_classes": [
     "car",
@@ -16,11 +16,11 @@
   "spot_layout_path": "data/layouts/default_layout.json",
   "output_dir": "output/",
   "log_dir": "logs/",
-  "database_uri": "postgresql://spotection_client:password123@localhost:5432/parking_db",
+  "database_uri": "postgresql://spotection_client:test123@localhost:5432/parking_db",
   "default_lot_id": "LOT-001",
   "camera_url": "http://www.insecam.org/en/view/804453/",
   "screenshot_interval": 120,
-  "save_raw_screenshots": true,
+  "save_raw_screenshots": false,
   "calibration_data": [
     {
       "id": "SPACE-001",
@@ -1825,7 +1825,27 @@
   ],
   "detection_threshold": 0.25,
   "update_interval": 1,
+  "admin_username": "admin",
+  "admin_password": "Password123",
+  "secret_key": "c16b8e09d6175c7eda171757c0361d1c7214a7996ddaa538602b168a4168da1e",
+  "host": "0.0.0.0",
+  "port": 5000,
+  "debug": false,
   "camera_source": "placeholder",
+  "camera_type": "placeholder",
+  "extraction_pattern_type": "auto",
+  "extraction_pattern_value": null,
+  "media_storage": {
+    "enabled": true,
+    "base_path": "media_archive",
+    "max_size_gb": 20,
+    "capture_interval": 10,
+    "capture_on_change": true,
+    "video_recording": true,
+    "video_segment_duration": 60,
+    "cleanup_enabled": true,
+    "keep_thumbnails": true
+  },
   "calibration_data_LOT-003": [
     {
       "id": "SPACE-001",
