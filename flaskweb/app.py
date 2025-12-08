@@ -7,6 +7,13 @@ import os
 from functools import wraps
 import secrets
 
+# Suppress PyTorch NNPACK warnings on unsupported hardware
+os.environ['PYTORCH_DISABLE_NNPACK'] = '1'
+# Also suppress other common PyTorch warnings
+import warnings
+warnings.filterwarnings('ignore', message='.*NNPACK.*')
+warnings.filterwarnings('ignore', message='.*Unsupported hardware.*')
+
 # Add parent directory to path to allow imports
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
@@ -1229,21 +1236,43 @@ def camera_feed():
     
     # If lot_id provided, create temporary camera for that lot
     if lot_id:
-        lot = ParkingLot.query.filter_by(public_id=lot_id).first()
-        if not lot or not lot.camera_url:
-            logger.error(f"No camera configured for lot {lot_id}")
+        try:
+            lot = ParkingLot.query.filter_by(public_id=lot_id).first()
+        except Exception as e:
+            logger.error(f"Database error querying lot {lot_id}: {e}")
+            return jsonify({'error': 'Database error', 'image_url': None}), 500
+            
+        if not lot:
+            logger.error(f"Lot {lot_id} not found")
+            return jsonify({'error': f'Lot {lot_id} not found', 'image_url': None}), 404
+            
+        if not lot.camera_url:
+            logger.error(f"No camera URL configured for lot {lot_id}")
             return jsonify({'error': f'No camera configured for {lot_id}', 'image_url': None}), 404
         
         # Create temporary camera for this lot
+        temp_camera = None
         try:
+            camera_type = lot.camera_type if lot.camera_type else 'auto'
+            camera_url = lot.camera_url
+            extraction_type = lot.extraction_pattern_type if lot.extraction_pattern_type else 'auto'
+            extraction_value = lot.extraction_pattern_value
+            
+            logger.debug(f"Creating camera for lot {lot_id}: type={camera_type}, url={camera_url[:50]}...")
+            
             temp_camera = create_camera_feed(
-                lot.camera_type or 'auto',
-                lot.camera_url,
-                lot.extraction_pattern_type or 'auto',
-                lot.extraction_pattern_value
+                camera_type,
+                camera_url,
+                extraction_type,
+                extraction_value
             )
             image_data = temp_camera.get_frame('base64')
-            temp_camera.stop()  # Clean up
+            
+            if temp_camera:
+                try:
+                    temp_camera.stop()  # Clean up
+                except:
+                    pass
             
             if not image_data:
                 return jsonify({'error': 'No frame data available', 'image_url': None}), 500
