@@ -81,7 +81,11 @@ limiter = Limiter(
 
 # Admin credentials (load from config or use defaults - should be changed in production!)
 ADMIN_USERNAME = main_config.get('admin_username', 'admin')
-ADMIN_PASSWORD = main_config.get('admin_password', 'admin123')  # Change this!
+ADMIN_PASSWORD = main_config.get('admin_password')
+if ADMIN_PASSWORD in (None, '', 'CHANGE_THIS_PASSWORD'):
+    # Never fall back to a well-known password: generate one for this run and tell the operator.
+    ADMIN_PASSWORD = secrets.token_urlsafe(12)
+    print(f"[SPOTection] admin_password is not set in config.json; this run's admin password is: {ADMIN_PASSWORD}")
 
 # Format: postgresql://USER:PASSWORD@HOST:PORT/DATABASE_NAME
 app.config['SQLALCHEMY_DATABASE_URI'] = main_config.get('database_uri', 'postgresql://spotection_client:password123@localhost:5432/parking_db')

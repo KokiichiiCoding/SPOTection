@@ -230,7 +230,7 @@ curl -X POST http://localhost:5000/api/lots \
 # 1. Login to get session cookie
 curl -X POST http://localhost:5000/login \
   -c cookies.txt \
-  -d "username=admin&password=admin123"
+  -d "username=admin&password=YOUR_ADMIN_PASSWORD"
 
 # 2. Use session cookie for protected endpoint
 curl -X POST http://localhost:5000/api/config \
@@ -314,4 +314,4 @@ For security concerns:
 - Verify `config.json` hasn't been tampered with
 - Ensure no unauthorized changes in database
 
-**Remember:** Default credentials (`admin`/`admin123`) must be changed before any production deployment!
+**Remember:** Set your own `admin_password` and a random `secret_key` in `config.json` before any deployment, and never commit `config.json`.

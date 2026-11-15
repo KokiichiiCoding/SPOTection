@@ -77,3 +77,6 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Local configuration with secrets: copy config.json.template to config.json
+config.json

@@ -9,7 +9,7 @@ SPOTection now includes authentication to protect the admin panel from unauthori
 **⚠️ IMPORTANT: Change these immediately in production!**
 
 - **Username:** `admin`
-- **Password:** `admin123`
+- **Password:** none built in. Set `admin_password` in `config.json` (`python setup.py` prompts for it). If it is missing, the app generates a one-time password at startup and prints it to the console.
 
 ## Configuration
 
@@ -18,7 +18,7 @@ Authentication settings are stored in `config.json`:
 ```json
 {
   "admin_username": "admin",
-  "admin_password": "admin123",
+  "admin_password": "CHANGE_THIS_PASSWORD",
   "secret_key": "CHANGE_THIS_TO_A_RANDOM_STRING"
 }
 ```
